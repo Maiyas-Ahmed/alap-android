@@ -21,15 +21,14 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew || true
 
-      - name: Build Debug & Release APK
+      - name: Build Android APK
         env:
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           FIREBASE_CLIENT_EMAIL: ${{ secrets.FIREBASE_CLIENT_EMAIL }}
           FIREBASE_PRIVATE_KEY: ${{ secrets.FIREBASE_PRIVATE_KEY }}
         run: |
-          echo "Building Alap v1.0.1 APK..."
-          gradle assembleDebug
-          gradle assembleRelease || gradle assembleDebug
+          echo "Building Alap APK via Gradle Wrapper..."
+          ./gradlew assembleDebug --no-daemon
 
       - name: Find and Rename APK
         id: apk
