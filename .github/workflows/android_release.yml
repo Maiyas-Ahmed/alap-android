@@ -18,7 +18,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Build Android APK via Gradle Wrapper
+      - name: Build Android APK (Debug Mode)
         env:
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           FIREBASE_CLIENT_EMAIL: ${{ secrets.FIREBASE_CLIENT_EMAIL }}
@@ -26,13 +26,16 @@ jobs:
         run: |
           echo "Granting gradlew execute permissions..."
           chmod +x gradlew
-          echo "Building app module debug APK..."
+          echo "Building debug APK to avoid missing release keystore error..."
           ./gradlew :app:assembleDebug --no-daemon
 
       - name: Find and Rename APK
         id: apk
         run: |
-          APK_PATH=$(find app/build/outputs/apk -name "*.apk" | head -n 1)
+          APK_PATH=$(find app/build/outputs/apk/debug -name "*.apk" | head -n 1)
+          if [ -z "$APK_PATH" ]; then
+            APK_PATH=$(find app/build/outputs/apk -name "*.apk" | head -n 1)
+          fi
           if [ -z "$APK_PATH" ]; then
             echo "Error: APK not found!"
             exit 1
