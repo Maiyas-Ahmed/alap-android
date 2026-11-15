@@ -1,0 +1,367 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Public chat identity profile for an Alap user without hidden PII.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID" },
+        "displayName": { "type": "string", "description": "Visible display name" },
+        "handle": { "type": "string", "description": "Unique-style handle without @ prefix" },
+        "about": { "type": "string", "description": "Short bio / status line" },
+        "avatarId": { "type": "string", "description": "Bundled offline avatar identifier" },
+        "publicPhoneNumber": { "type": "string", "description": "Mobile number only if user allows public visibility, else empty" },
+        "publicUserId": { "type": "string", "description": "Alap User ID only if user allows public visibility, else empty" },
+        "hidePhoneNumber": { "type": "boolean", "description": "Toggle to hide mobile number from others" },
+        "hideUserId": { "type": "boolean", "description": "Toggle to hide User ID & handle from others" },
+        "hideOnlineStatus": { "type": "boolean", "description": "Toggle to hide online dot and last seen" },
+        "hideAbout": { "type": "boolean", "description": "Toggle to hide About bio from others" },
+        "hideReadReceipts": { "type": "boolean", "description": "Toggle to hide read receipt blue ticks" },
+        "blockedUids": { "type": "array", "description": "UIDs blocked by this user" },
+        "isProfileCompleted": { "type": "boolean", "description": "Whether user completed post-verification profile setup" },
+        "isDiscoverable": { "type": "boolean", "description": "Whether user appears in directory search" },
+        "isOnline": { "type": "boolean", "description": "Presence indicator" },
+        "isVerified": { "type": "boolean", "description": "Admin-assigned verified badge" },
+        "isSuspended": { "type": "boolean", "description": "Admin moderation suspension state" },
+        "lastSeenAt": { "type": "string", "format": "date-time", "description": "Server timestamp of last activity" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp of profile creation" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp of profile update" }
+      },
+      "required": [
+        "userId",
+        "displayName",
+        "handle",
+        "about",
+        "avatarId",
+        "publicPhoneNumber",
+        "publicUserId",
+        "hidePhoneNumber",
+        "hideUserId",
+        "hideOnlineStatus",
+        "hideAbout",
+        "isProfileCompleted",
+        "isDiscoverable",
+        "isOnline",
+        "isVerified",
+        "isSuspended",
+        "lastSeenAt",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Isolated PII record containing the user's Google account email, mobile number, and private Alap ID.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner UID" },
+        "email": { "type": "string", "description": "Verified Gmail address" },
+        "phoneNumber": { "type": "string", "description": "User's private mobile number" },
+        "alapId": { "type": "string", "description": "User's Alap User ID" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["userId", "email", "phoneNumber", "alapId", "createdAt", "updatedAt"]
+    },
+    "EmailVerificationOtp": {
+      "title": "EmailVerificationOtp",
+      "description": "Owner-only 6-digit Gmail verification challenge record.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner UID" },
+        "email": { "type": "string", "description": "Target Gmail address" },
+        "code": { "type": "string", "description": "6-digit verification code" },
+        "expiresAtEpochMs": { "type": "integer", "description": "Expiry timestamp in ms" },
+        "attempts": { "type": "integer", "description": "Failed verification attempt count" },
+        "verified": { "type": "boolean", "description": "Whether challenge is verified" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["userId", "email", "code", "expiresAtEpochMs", "attempts", "verified", "createdAt", "updatedAt"]
+    },
+    "AdminEntry": {
+      "title": "AdminEntry",
+      "description": "Delegated admin record manageable by the primary bootstrapped admin.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Admin UID" },
+        "email": { "type": "string", "description": "Admin email" },
+        "addedBy": { "type": "string", "description": "Primary admin UID" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["uid", "email", "addedBy", "createdAt"]
+    },
+    "AppConfig": {
+      "title": "AppConfig",
+      "description": "Admin-controlled global app settings and feature flags.",
+      "type": "object",
+      "properties": {
+        "appTagline": { "type": "string", "description": "Subtle app tagline shown on auth/settings" },
+        "maintenanceBanner": { "type": "string", "description": "Optional global notice text" },
+        "isReadOnlyMode": { "type": "boolean", "description": "If true, disables sending new messages for non-admins" },
+        "allowStatusUpdates": { "type": "boolean", "description": "Whether 24h status posting is enabled" },
+        "allowGroupCreation": { "type": "boolean", "description": "Whether users can create new groups" },
+        "forceUpdateRequired": { "type": "boolean", "description": "Whether clients below minAppVersion must update" },
+        "maxMessageLength": { "type": "integer", "description": "Max characters per text message" },
+        "minAppVersion": { "type": "string", "description": "Minimum recommended app version" },
+        "latestApkUrl": { "type": "string", "description": "Direct HTTPS APK download URL for in-app auto-updater" },
+        "latestVersionCode": { "type": "integer", "description": "Latest published Android versionCode" },
+        "updatedBy": { "type": "string", "description": "Admin UID who updated config" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": [
+        "appTagline",
+        "maintenanceBanner",
+        "isReadOnlyMode",
+        "allowStatusUpdates",
+        "allowGroupCreation",
+        "maxMessageLength",
+        "minAppVersion",
+        "updatedBy",
+        "updatedAt"
+      ]
+    },
+    "AdminApiKey": {
+      "title": "AdminApiKey",
+      "description": "Primary-admin issued API key for external web dashboards and automation.",
+      "type": "object",
+      "properties": {
+        "label": { "type": "string", "description": "Human-readable key name" },
+        "apiKey": { "type": "string", "description": "Generated API key token" },
+        "scopes": { "type": "array", "description": "Authorized permission scopes" },
+        "isActive": { "type": "boolean", "description": "Whether the key is enabled" },
+        "createdBy": { "type": "string", "description": "Primary admin UID" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["label", "apiKey", "scopes", "isActive", "createdBy", "createdAt", "updatedAt"]
+    },
+    "DevicePushToken": {
+      "title": "DevicePushToken",
+      "description": "FCM push notification token registered by a signed-in user device.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner UID" },
+        "token": { "type": "string", "description": "Firebase Cloud Messaging device registration token" },
+        "platform": { "type": "string", "description": "Client platform (android)" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["userId", "token", "platform", "updatedAt"]
+    },
+    "Announcement": {
+      "title": "Announcement",
+      "description": "Admin-published update banner and local push notification trigger.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "description": "Banner & notification title" },
+        "message": { "type": "string", "description": "Banner & notification body" },
+        "versionTag": { "type": "string", "description": "Optional release tag e.g. v2.0" },
+        "priority": { "type": "string", "enum": ["update", "info", "urgent"], "description": "Announcement category" },
+        "isActive": { "type": "boolean", "description": "Whether banner is visible to users" },
+        "createdBy": { "type": "string", "description": "Admin UID" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["title", "message", "versionTag", "priority", "isActive", "createdBy", "createdAt", "updatedAt"]
+    },
+    "Chat": {
+      "title": "Chat",
+      "description": "Direct or group conversation room metadata.",
+      "type": "object",
+      "properties": {
+        "chatType": { "type": "string", "enum": ["direct", "group"], "description": "Conversation kind" },
+        "title": { "type": "string", "description": "Group title (empty for direct)" },
+        "description": { "type": "string", "description": "Group description" },
+        "avatarId": { "type": "string", "description": "Bundled avatar identifier" },
+        "participantUids": { "type": "array", "description": "Participant UIDs (2..50)" },
+        "adminUids": { "type": "array", "description": "Group admin UIDs" },
+        "createdBy": { "type": "string", "description": "Creator UID" },
+        "lastMessageText": { "type": "string", "description": "Preview of last message" },
+        "lastMessageSenderId": { "type": "string", "description": "Sender UID of last message" },
+        "lastMessageType": { "type": "string", "enum": ["text", "sticker", "poll", "system"], "description": "Type of last message" },
+        "lastMessageAt": { "type": "string", "format": "date-time", "description": "Server timestamp of last message" },
+        "disappearingHours": { "type": "integer", "description": "Auto-expire hours: 0, 24, or 168" },
+        "typingUids": { "type": "array", "description": "Currently typing UIDs" },
+        "pinnedByUids": { "type": "array", "description": "UIDs who pinned this chat" },
+        "mutedByUids": { "type": "array", "description": "UIDs who muted this chat" },
+        "archivedByUids": { "type": "array", "description": "UIDs who archived this chat" },
+        "unreadCounts": { "type": "object", "description": "Map of UID to unread integer count" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": [
+        "chatType",
+        "title",
+        "description",
+        "avatarId",
+        "participantUids",
+        "adminUids",
+        "createdBy",
+        "lastMessageText",
+        "lastMessageSenderId",
+        "lastMessageType",
+        "lastMessageAt",
+        "typingUids",
+        "pinnedByUids",
+        "mutedByUids",
+        "archivedByUids",
+        "unreadCounts",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Lightweight text, bundled sticker, or group poll message inside a chat.",
+      "type": "object",
+      "properties": {
+        "chatId": { "type": "string", "description": "Parent chat ID" },
+        "senderId": { "type": "string", "description": "Author UID" },
+        "senderName": { "type": "string", "description": "Author display name snapshot" },
+        "text": { "type": "string", "description": "Message body" },
+        "messageType": { "type": "string", "enum": ["text", "sticker", "poll", "system"], "description": "Message payload type" },
+        "stickerId": { "type": "string", "description": "Optional bundled local sticker key" },
+        "pollQuestion": { "type": "string", "description": "Optional poll question" },
+        "pollOptions": { "type": "array", "description": "Optional poll choices" },
+        "pollVotes": { "type": "object", "description": "Map of UID to selected option index" },
+        "replyToMessageId": { "type": "string", "description": "Optional quoted message ID" },
+        "replyToSenderName": { "type": "string", "description": "Optional quoted sender name" },
+        "replyToPreview": { "type": "string", "description": "Optional quoted snippet" },
+        "isForwarded": { "type": "boolean", "description": "Forwarded badge flag" },
+        "isEdited": { "type": "boolean", "description": "Edited badge flag" },
+        "isDeleted": { "type": "boolean", "description": "Soft-deleted for everyone flag" },
+        "participantUids": { "type": "array", "description": "Denormalized chat participant UIDs" },
+        "readByUids": { "type": "array", "description": "UIDs who read this message" },
+        "starredByUids": { "type": "array", "description": "UIDs who starred this message" },
+        "reactions": { "type": "object", "description": "Map of UID to reaction emoji" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": [
+        "chatId",
+        "senderId",
+        "senderName",
+        "text",
+        "messageType",
+        "isForwarded",
+        "isEdited",
+        "isDeleted",
+        "participantUids",
+        "readByUids",
+        "starredByUids",
+        "reactions",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "StatusUpdate": {
+      "title": "StatusUpdate",
+      "description": "Lightweight 24-hour text status update.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Author UID" },
+        "authorName": { "type": "string", "description": "Author display name" },
+        "authorAvatarId": { "type": "string", "description": "Author bundled avatar ID" },
+        "text": { "type": "string", "description": "Status message body" },
+        "styleKey": { "type": "string", "enum": ["emerald", "slate", "charcoal", "sand"], "description": "Minimal background style" },
+        "isPublic": { "type": "boolean", "description": "Visible to signed-in Alap users" },
+        "viewerUids": { "type": "array", "description": "UIDs who viewed this status" },
+        "expiresAtEpochMs": { "type": "integer", "description": "Expiry epoch milliseconds (24h)" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": [
+        "userId",
+        "authorName",
+        "authorAvatarId",
+        "text",
+        "styleKey",
+        "isPublic",
+        "viewerUids",
+        "expiresAtEpochMs",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AdminAuditLog": {
+      "title": "AdminAuditLog",
+      "description": "Immutable admin security & moderation log entry.",
+      "type": "object",
+      "properties": {
+        "adminUid": { "type": "string", "description": "Acting admin UID" },
+        "adminEmail": { "type": "string", "description": "Acting admin email" },
+        "action": { "type": "string", "description": "Action code" },
+        "targetId": { "type": "string", "description": "Target user or document ID" },
+        "details": { "type": "string", "description": "Summary of action" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["adminUid", "adminEmail", "action", "targetId", "details", "createdAt"]
+    },
+    "UserReport": {
+      "title": "UserReport",
+      "description": "User-submitted abuse or spam report reviewed in Admin Console.",
+      "type": "object",
+      "properties": {
+        "reporterUid": { "type": "string", "description": "Reporter UID" },
+        "targetUid": { "type": "string", "description": "Reported user UID" },
+        "targetName": { "type": "string", "description": "Reported user name snapshot" },
+        "chatId": { "type": "string", "description": "Optional related chat ID" },
+        "reason": { "type": "string", "description": "Report reason" },
+        "status": { "type": "string", "enum": ["open", "resolved", "dismissed"], "description": "Moderation status" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["reporterUid", "targetUid", "targetName", "chatId", "reason", "status", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Public discoverable profiles of Alap users (no PII)."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateInfo" },
+      "description": "Isolated PII document storing the user's email."
+    },
+    "/admins/{adminUid}": {
+      "schema": { "$ref": "#/entities/AdminEntry" },
+      "description": "Authorized secondary administrators."
+    },
+    "/app_config/{configId}": {
+      "schema": { "$ref": "#/entities/AppConfig" },
+      "description": "Global application settings managed by admin."
+    },
+    "/announcements/{announcementId}": {
+      "schema": { "$ref": "#/entities/Announcement" },
+      "description": "Admin-published update banners and push notification triggers."
+    },
+    "/chats/{chatId}": {
+      "schema": { "$ref": "#/entities/Chat" },
+      "description": "1-to-1 and group conversation rooms."
+    },
+    "/chats/{chatId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "Messages inside a chat room with denormalized participantUids."
+    },
+    "/statuses/{statusId}": {
+      "schema": { "$ref": "#/entities/StatusUpdate" },
+      "description": "24-hour text status updates."
+    },
+    "/audit_logs/{logId}": {
+      "schema": { "$ref": "#/entities/AdminAuditLog" },
+      "description": "Immutable administrative activity audit trail."
+    },
+    "/reports/{reportId}": {
+      "schema": { "$ref": "#/entities/UserReport" },
+      "description": "User moderation reports."
+    },
+    "/admin_api_keys/{keyId}": {
+      "schema": { "$ref": "#/entities/AdminApiKey" },
+      "description": "API keys created by Primary Admin for connected web admin/update sites."
+    },
+    "/device_tokens/{userId}": {
+      "schema": { "$ref": "#/entities/DevicePushToken" },
+      "description": "FCM push registration tokens for background/killed-app notifications."
+    }
+  }
+}

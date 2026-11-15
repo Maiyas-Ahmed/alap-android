@@ -1,0 +1,6 @@
+{
+  "name": "Alap",
+  "description": "Modern WhatsApp-inspired messaging app with offline-first caching, Google Sign-In, groups, statuses, and admin announcements.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
