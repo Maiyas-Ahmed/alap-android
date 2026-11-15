@@ -18,16 +18,16 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Build Android APK
+      - name: Build Android APK via Gradle Wrapper
         env:
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           FIREBASE_CLIENT_EMAIL: ${{ secrets.FIREBASE_CLIENT_EMAIL }}
           FIREBASE_PRIVATE_KEY: ${{ secrets.FIREBASE_PRIVATE_KEY }}
         run: |
-          echo "Installing Gradle build tool..."
-          sudo apt-get update && sudo apt-get install -y gradle
-          echo "Building debug APK..."
-          gradle assembleDebug
+          echo "Granting gradlew execute permissions..."
+          chmod +x gradlew
+          echo "Building app module debug APK..."
+          ./gradlew :app:assembleDebug --no-daemon
 
       - name: Find and Rename APK
         id: apk
