@@ -3,8 +3,10 @@ package com.example.service
 import android.util.Log
 import com.example.data.firestore.AlapFirestoreProvider
 import com.example.data.local.LocalPreferencesManager
+import com.example.data.model.Announcement
 import com.example.data.repository.AlapRepository
 import com.example.util.NotificationHelper
+import com.example.util.WebsiteUpdateChecker
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 import com.google.firebase.messaging.FirebaseMessaging
@@ -53,6 +55,20 @@ class AlapMessagingService : FirebaseMessagingService() {
         val announcementId = data["announcementId"] ?: "fcm_${System.currentTimeMillis()}"
 
         serviceScope.launch {
+            if ((type == "announcement" || type == "update") &&
+                !WebsiteUpdateChecker.shouldShowAnnouncement(
+                    Announcement(
+                        id = announcementId,
+                        title = title,
+                        message = body,
+                        versionTag = versionTag,
+                        priority = type
+                    )
+                )
+            ) {
+                return@launch
+            }
+
             val prefs = LocalPreferencesManager(applicationContext)
             val notificationsEnabled = prefs.notificationsEnabled.first()
             val floatingGlassEnabled = prefs.floatingGlassEnabled.first()

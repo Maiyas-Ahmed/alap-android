@@ -1,11 +1,11 @@
 package com.example.ui.screens
 
-import android.Manifest
-import android.content.Intent
 import android.net.Uri
-import android.os.Build
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -32,45 +33,27 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AdminPanelSettings
-import androidx.compose.material.icons.filled.Badge
-import androidx.compose.material.icons.filled.Block
-import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.DataSaverOn
-import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.FileUpload
-import androidx.compose.material.icons.filled.Fingerprint
-import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Mail
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Phone
-import androidx.compose.material.icons.filled.Public
-import androidx.compose.material.icons.filled.Restore
-import androidx.compose.material.icons.filled.ScreenshotMonitor
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.SystemUpdate
-import androidx.compose.material.icons.filled.VerifiedUser
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -85,13 +68,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -152,14 +135,18 @@ fun SettingsScreen(
     onSignOut: () -> Unit
 ) {
     val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
+    var activeSection by remember { mutableStateOf<SettingsSection?>(null) }
     var showEditProfile by remember { mutableStateOf(false) }
     var showAppPinDialog by remember { mutableStateOf(false) }
     var showAdminPinDialog by remember { mutableStateOf(false) }
     var showBlockedUsersDialog by remember { mutableStateOf(false) }
     var hasOverlayPermission by remember { mutableStateOf(NotificationHelper.hasOverlayPermission(context)) }
+
+    BackHandler(enabled = activeSection != null) {
+        activeSection = null
+    }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -186,661 +173,139 @@ fun SettingsScreen(
     val isDiscoverable = myProfile?.isDiscoverable ?: true
     val blockedUids = myProfile?.blockedUids ?: emptyList()
 
-    val notificationLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        onNotificationsToggle(granted)
-    }
-
-    val exportBackupLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/json")
-    ) { uri ->
-        if (uri != null) onExportBackup(uri)
-    }
-
-    val restoreBackupLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) onRestoreBackup(uri)
+    val saveQuickPrivacy = {
+            pHidePhone: Boolean,
+            pHideUserId: Boolean,
+            pHideOnline: Boolean,
+            pHideAbout: Boolean,
+            pHideReceipts: Boolean,
+            pDiscoverable: Boolean ->
+        onSaveProfileAndPrivacy(
+            myProfile?.displayName ?: "Alap User",
+            myProfile?.handle ?: "alap",
+            myPrivateInfo?.phoneNumber ?: myProfile?.publicPhoneNumber ?: "",
+            displayAlapId,
+            myProfile?.about ?: "Hey there! I am using Alap.",
+            myProfile?.avatarId ?: AlapConstants.AVATAR_KEYS.first(),
+            pHidePhone,
+            pHideUserId,
+            pHideOnline,
+            pHideAbout,
+            pHideReceipts,
+            pDiscoverable
+        )
     }
 
     Scaffold(
         containerColor = Color.White,
         topBar = {
-            TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.White,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                title = { Text("Profile, Privacy & Security") },
-                navigationIcon = {
-                    IconButton(onClick = onBack, modifier = Modifier.testTag("settings_back_button")) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            Column {
+                TopAppBar(
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.White,
+                        titleContentColor = MaterialTheme.colorScheme.onSurface
+                    ),
+                    title = {
+                        Text(
+                            text = activeSection?.title ?: "Settings",
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(
+                            onClick = {
+                                if (activeSection != null) activeSection = null else onBack()
+                            },
+                            modifier = Modifier.testTag("settings_back_button")
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
                     }
-                }
-            )
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
+            }
         }
     ) { innerPadding ->
-        Column(
+        AnimatedContent(
+            targetState = activeSection,
+            transitionSpec = { fadeIn() togetherWith fadeOut() },
+            label = "settings_section_transition",
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.White)
                 .padding(innerPadding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            // Crisp White Profile Card
-            Surface(
-                shape = RoundedCornerShape(18.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        AlapAvatar(
-                            avatarId = myProfile?.avatarId ?: "avatar_emerald",
-                            displayName = myProfile?.displayName ?: "Alap User",
-                            isOnline = !hideOnline,
-                            size = 64.dp
-                        )
-                        Spacer(modifier = Modifier.width(14.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = myProfile?.displayName ?: "Alap User",
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                if (myProfile?.isVerified == true) {
-                                    Spacer(modifier = Modifier.width(5.dp))
-                                    VerifiedBadge()
-                                }
-                            }
-                            Text(
-                                text = "@${myProfile?.handle ?: "alap"}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = myProfile?.about ?: "Hey there! I am using Alap.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                        IconButton(
-                            onClick = { showEditProfile = true },
-                            modifier = Modifier.testTag("edit_profile_button")
-                        ) {
-                            Icon(Icons.Filled.Edit, contentDescription = "Edit profile")
-                        }
-                    }
-
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-
-                    AccountInfoLine(
-                        icon = Icons.Filled.Mail,
-                        label = "Verified Gmail",
-                        value = currentEmail,
-                        visibilityBadge = "Private",
-                        onCopy = { clipboard.setText(AnnotatedString(currentEmail)) }
-                    )
-                    AccountInfoLine(
-                        icon = Icons.Filled.Phone,
-                        label = "Mobile Number",
-                        value = displayPhone,
-                        visibilityBadge = if (hidePhone) "Hidden" else "Public",
-                        onCopy = if (displayPhone != "Not added yet") {
-                            { clipboard.setText(AnnotatedString(displayPhone)) }
-                        } else null
-                    )
-                    AccountInfoLine(
-                        icon = Icons.Filled.Badge,
-                        label = "Alap User ID",
-                        value = displayAlapId,
-                        visibilityBadge = if (hideUserId) "Hidden" else "Public",
-                        onCopy = { clipboard.setText(AnnotatedString(displayAlapId)) }
+        ) { section ->
+            when (section) {
+                null -> {
+                    SettingsHubContent(
+                        myProfile = myProfile,
+                        hideOnline = hideOnline,
+                        isAdmin = isAdmin,
+                        blockedCount = blockedUids.size,
+                        hasAppLockPin = hasAppLockPin,
+                        screenSecurityEnabled = screenSecurityEnabled,
+                        notificationsEnabled = notificationsEnabled,
+                        floatingGlassEnabled = floatingGlassEnabled,
+                        starredCount = starredCount,
+                        localOnlyRelayMode = localOnlyRelayMode,
+                        localStoredMessageCount = localStoredMessageCount,
+                        onEditProfile = { showEditProfile = true },
+                        onOpenAdminPanel = onOpenAdminPanel,
+                        onOpenSection = { activeSection = it },
+                        onOpenStarredMessages = onOpenStarredMessages,
+                        onSignOut = onSignOut
                     )
                 }
-            }
 
-            if (isAdmin) {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onOpenAdminPanel() }
-                        .testTag("open_admin_panel_button")
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.AdminPanelSettings,
-                            contentDescription = "Admin Panel",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(28.dp)
-                        )
-                        Spacer(modifier = Modifier.width(14.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Admin Console",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                            Text(
-                                text = "Manage users, moderation reports, audit logs & live controls",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Smart Privacy Controls Card
-            Surface(
-                shape = RoundedCornerShape(18.dp),
-                color = Color.White,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text("Privacy", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                "Control what contacts can view on your profile",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-
-                    val saveQuickPrivacy = {
-                            pHidePhone: Boolean,
-                            pHideUserId: Boolean,
-                            pHideOnline: Boolean,
-                            pHideAbout: Boolean,
-                            pHideReceipts: Boolean,
-                            pDiscoverable: Boolean ->
-                        onSaveProfileAndPrivacy(
-                            myProfile?.displayName ?: "Alap User",
-                            myProfile?.handle ?: "alap",
-                            myPrivateInfo?.phoneNumber ?: myProfile?.publicPhoneNumber ?: "",
-                            displayAlapId,
-                            myProfile?.about ?: "Hey there! I am using Alap.",
-                            myProfile?.avatarId ?: AlapConstants.AVATAR_KEYS.first(),
-                            pHidePhone,
-                            pHideUserId,
-                            pHideOnline,
-                            pHideAbout,
-                            pHideReceipts,
-                            pDiscoverable
-                        )
-                    }
-
-                    PrivacyToggleRow(
-                        icon = Icons.Filled.Phone,
-                        title = "Hide Mobile Number",
-                        subtitle = if (hidePhone) "Nobody can see your mobile number" else "Visible in your contact info",
-                        checked = hidePhone,
-                        onCheckedChange = { saveQuickPrivacy(it, hideUserId, hideOnline, hideAbout, hideReadReceipts, isDiscoverable) },
-                        testTag = "settings_hide_phone_switch"
-                    )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
-                    PrivacyToggleRow(
-                        icon = Icons.Filled.Badge,
-                        title = "Hide User ID & @Handle",
-                        subtitle = if (hideUserId) "Hidden from contacts & search" else "Visible to contacts",
-                        checked = hideUserId,
-                        onCheckedChange = { saveQuickPrivacy(hidePhone, it, hideOnline, hideAbout, hideReadReceipts, isDiscoverable) },
-                        testTag = "settings_hide_userid_switch"
-                    )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
-                    PrivacyToggleRow(
-                        icon = Icons.Filled.VisibilityOff,
-                        title = "Hide Last Seen & Online",
-                        subtitle = if (hideOnline) "Online status & last seen hidden" else "Visible to contacts",
-                        checked = hideOnline,
-                        onCheckedChange = { saveQuickPrivacy(hidePhone, hideUserId, it, hideAbout, hideReadReceipts, isDiscoverable) },
-                        testTag = "settings_hide_online_switch"
-                    )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
-                    PrivacyToggleRow(
-                        icon = Icons.Filled.Person,
-                        title = "Hide About Bio",
-                        subtitle = if (hideAbout) "About bio hidden from contacts" else "Visible to everyone",
-                        checked = hideAbout,
-                        onCheckedChange = { saveQuickPrivacy(hidePhone, hideUserId, hideOnline, it, hideReadReceipts, isDiscoverable) },
-                        testTag = "settings_hide_about_switch"
-                    )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
-                    PrivacyToggleRow(
-                        icon = Icons.Filled.DoneAll,
-                        title = "Hide Read Receipts",
-                        subtitle = if (hideReadReceipts) "Blue read ticks are off" else "Senders see when you read messages",
-                        checked = hideReadReceipts,
-                        onCheckedChange = { saveQuickPrivacy(hidePhone, hideUserId, hideOnline, hideAbout, it, isDiscoverable) },
-                        testTag = "settings_hide_receipts_switch"
-                    )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
-                    PrivacyToggleRow(
-                        icon = Icons.Filled.VerifiedUser,
-                        title = "Discoverable in People Tab",
-                        subtitle = if (isDiscoverable) "Others can find & message you" else "Hidden from People directory",
-                        checked = isDiscoverable,
-                        onCheckedChange = { saveQuickPrivacy(hidePhone, hideUserId, hideOnline, hideAbout, hideReadReceipts, it) },
-                        testTag = "settings_discoverable_switch"
-                    )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { showBlockedUsersDialog = true }
-                            .padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Filled.Block, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Blocked Contacts", style = MaterialTheme.typography.titleSmall)
-                            Text(
-                                "${blockedUids.size} contact(s) blocked",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Text("Manage", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    }
-                }
-            }
-
-            // Security, App Lock & Admin 2-Layer Protection Card
-            Surface(
-                shape = RoundedCornerShape(18.dp),
-                color = Color.White,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Security, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text("App Security & Locks", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                "Protect chats & Admin Console with PIN / Fingerprint",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { showAppPinDialog = true }
-                            .padding(vertical = 8.dp)
-                            .testTag("app_lock_pin_row"),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Filled.Fingerprint, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("App Lock (PIN + Biometric)", style = MaterialTheme.typography.titleSmall)
-                            Text(
-                                if (hasAppLockPin) "Active • Required when opening Alap" else "Off • Tap to set a 4-6 digit PIN",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Text(
-                            text = if (hasAppLockPin) "Edit / Off" else "Set PIN",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-
-                    if (isAdmin) {
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { showAdminPinDialog = true }
-                                .padding(vertical = 8.dp)
-                                .testTag("admin_lock_pin_row"),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Filled.AdminPanelSettings, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Admin 2-Layer Security Gate", style = MaterialTheme.typography.titleSmall)
-                                Text(
-                                    if (hasAdminPin) "Active • Extra PIN/Fingerprint before Admin Console" else "Uses device Fingerprint or set dedicated Admin PIN",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Text(
-                                text = if (hasAdminPin) "Change" else "Set PIN",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
-                    PrivacyToggleRow(
-                        icon = Icons.Filled.ScreenshotMonitor,
-                        title = "Screen Privacy (Block Screenshots)",
-                        subtitle = if (screenSecurityEnabled) "Screenshots & screen recording blocked (FLAG_SECURE)" else "Screenshots allowed",
-                        checked = screenSecurityEnabled,
-                        onCheckedChange = onScreenSecurityToggle,
-                        testTag = "screen_security_switch"
-                    )
-                }
-            }
-
-            // Dual Notifications & iPhone-Style Floating Glass Popups Card
-            Surface(
-                shape = RoundedCornerShape(18.dp),
-                color = Color.White,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Notifications, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text("Dual Pop-Down Notifications", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                "Play-safe Heads-Up alerts + optional Floating Glass Popups",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Filled.Notifications, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Heads-Up Message & Update Alerts", style = MaterialTheme.typography.titleSmall)
-                            Text(
-                                "Play-compliant top pop-down notifications over games & apps",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = notificationsEnabled,
-                            onCheckedChange = { wantEnabled ->
-                                if (wantEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                                    !NotificationHelper.hasNotificationPermission(context)
-                                ) {
-                                    notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                } else {
-                                    onNotificationsToggle(wantEnabled)
-                                }
-                            }
-                        )
-                    }
-
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Filled.Layers, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Floating Glass Popup Over Apps", style = MaterialTheme.typography.titleSmall)
-                            Text(
-                                if (hasOverlayPermission && floatingGlassEnabled) {
-                                    "Active • Translucent glass popup over games & other apps"
-                                } else if (floatingGlassEnabled) {
-                                    "Permission needed • Falling back to Heads-Up notifications"
-                                } else {
-                                    "Optional • Grant 'Display over other apps' or stay on Heads-Up"
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = floatingGlassEnabled,
-                            onCheckedChange = { enable ->
-                                onFloatingGlassToggle(enable)
-                                if (enable && !NotificationHelper.hasOverlayPermission(context)) {
-                                    NotificationHelper.openOverlayPermissionSettings(context)
-                                }
-                            },
-                            modifier = Modifier.testTag("floating_glass_switch")
-                        )
-                    }
-
-                    if (!hasOverlayPermission) {
-                        OutlinedButton(
-                            onClick = { NotificationHelper.openOverlayPermissionSettings(context) },
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Grant 'Display over other apps' Permission")
-                        }
-                    }
-                }
-            }
-
-            // Starred Messages
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = Color.White,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onOpenStarredMessages() }
-                    .testTag("starred_messages_button")
-            ) {
-                ListItem(
-                    headlineContent = { Text("Starred Messages") },
-                    supportingContent = { Text("$starredCount saved offline & synced") },
-                    leadingContent = {
-                        Icon(Icons.Filled.Star, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    }
+                SettingsSection.ACCOUNT -> AccountSettingsSection(
+                    currentEmail = currentEmail,
+                    displayPhone = displayPhone,
+                    displayAlapId = displayAlapId,
+                    hidePhone = hidePhone,
+                    hideUserId = hideUserId,
+                    onEditProfile = { showEditProfile = true }
                 )
-            }
 
-            // On-Device Local Storage, Zero Server Bloat & Chat Backup Card
-            Surface(
-                shape = RoundedCornerShape(18.dp),
-                color = Color.White,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Storage, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text("Local Chat Storage & Backup", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                "$localStoredMessageCount message(s) safely stored on your phone",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
+                SettingsSection.PRIVACY -> PrivacySettingsSection(
+                    hidePhone = hidePhone,
+                    hideUserId = hideUserId,
+                    hideOnline = hideOnline,
+                    hideAbout = hideAbout,
+                    hideReadReceipts = hideReadReceipts,
+                    isDiscoverable = isDiscoverable,
+                    blockedCount = blockedUids.size,
+                    onUpdatePrivacy = saveQuickPrivacy,
+                    onOpenBlockedUsers = { showBlockedUsersDialog = true }
+                )
 
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                SettingsSection.SECURITY -> SecuritySettingsSection(
+                    isAdmin = isAdmin,
+                    hasAppLockPin = hasAppLockPin,
+                    hasAdminPin = hasAdminPin,
+                    screenSecurityEnabled = screenSecurityEnabled,
+                    onOpenAppPinDialog = { showAppPinDialog = true },
+                    onOpenAdminPinDialog = { showAdminPinDialog = true },
+                    onScreenSecurityToggle = onScreenSecurityToggle
+                )
 
-                    PrivacyToggleRow(
-                        icon = Icons.Filled.DataSaverOn,
-                        title = "Zero Server Bloat (Local-Only Relay)",
-                        subtitle = if (localOnlyRelayMode) {
-                            "Messages save on your phone & clear from Firebase after delivery"
-                        } else {
-                            "Cloud sync kept active alongside on-device Room cache"
-                        },
-                        checked = localOnlyRelayMode,
-                        onCheckedChange = onLocalOnlyRelayToggle,
-                        testTag = "local_only_relay_switch"
-                    )
+                SettingsSection.NOTIFICATIONS -> NotificationsSettingsSection(
+                    notificationsEnabled = notificationsEnabled,
+                    floatingGlassEnabled = floatingGlassEnabled,
+                    hasOverlayPermission = hasOverlayPermission,
+                    onNotificationsToggle = onNotificationsToggle,
+                    onFloatingGlassToggle = onFloatingGlassToggle
+                )
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(
-                            onClick = { exportBackupLauncher.launch("alap_chat_backup.json") },
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("export_backup_button")
-                        ) {
-                            Icon(Icons.Filled.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Export Backup")
-                        }
-                        OutlinedButton(
-                            onClick = { restoreBackupLauncher.launch(arrayOf("application/json", "*/*")) },
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("restore_backup_button")
-                        ) {
-                            Icon(Icons.Filled.Restore, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Restore File")
-                        }
-                    }
+                SettingsSection.STORAGE -> StorageSettingsSection(
+                    localOnlyRelayMode = localOnlyRelayMode,
+                    localStoredMessageCount = localStoredMessageCount,
+                    onLocalOnlyRelayToggle = onLocalOnlyRelayToggle,
+                    onExportBackup = onExportBackup,
+                    onRestoreBackup = onRestoreBackup,
+                    onRestoreAutoSnapshot = onRestoreAutoSnapshot
+                )
 
-                    OutlinedButton(
-                        onClick = onRestoreAutoSnapshot,
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("restore_snapshot_button")
-                    ) {
-                        Icon(Icons.Filled.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Restore Device Auto-Snapshot")
-                    }
-
-                    Text(
-                        text = "আপডেট বা রিইনস্টলের আগে Backup Export করলে সব চ্যাট অফলাইনেই সুরক্ষিত থাকবে। অটো ব্যাকআপও চালু আছে।",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            // Official Public Websites & Version Card
-            Surface(
-                shape = RoundedCornerShape(18.dp),
-                color = Color.White,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Public, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                text = "Alap Official Portal & App Info",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = "Version ${AlapConstants.CURRENT_APP_VERSION} (Build ${AlapConstants.CURRENT_APP_VERSION_CODE})",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(
-                            onClick = {
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(AlapConstants.PUBLIC_WEBSITE_URL))
-                                context.startActivity(intent)
-                            },
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("open_public_website_button")
-                        ) {
-                            Icon(Icons.Filled.Public, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Alap Website")
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(AlapConstants.UPDATE_PORTAL_URL))
-                                context.startActivity(intent)
-                            },
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("open_update_portal_button")
-                        ) {
-                            Icon(Icons.Filled.SystemUpdate, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Update Portal")
-                        }
-                    }
-                }
-            }
-
-            OutlinedButton(
-                onClick = onSignOut,
-                shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp)
-                    .testTag("sign_out_button")
-            ) {
-                Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Sign Out", color = MaterialTheme.colorScheme.error)
+                SettingsSection.APP_INFO -> AppInfoSettingsSection()
             }
         }
     }
@@ -1018,6 +483,256 @@ fun SettingsScreen(
 }
 
 @Composable
+private fun SettingsHubContent(
+    myProfile: UserProfile?,
+    hideOnline: Boolean,
+    isAdmin: Boolean,
+    blockedCount: Int,
+    hasAppLockPin: Boolean,
+    screenSecurityEnabled: Boolean,
+    notificationsEnabled: Boolean,
+    floatingGlassEnabled: Boolean,
+    starredCount: Int,
+    localOnlyRelayMode: Boolean,
+    localStoredMessageCount: Int,
+    onEditProfile: () -> Unit,
+    onOpenAdminPanel: () -> Unit,
+    onOpenSection: (SettingsSection) -> Unit,
+    onOpenStarredMessages: () -> Unit,
+    onSignOut: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.White),
+        contentAlignment = Alignment.TopCenter
+    ) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = 680.dp)
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+        ) {
+            // WhatsApp-style Profile Header Row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onEditProfile)
+                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                AlapAvatar(
+                    avatarId = myProfile?.avatarId ?: "avatar_emerald",
+                    displayName = myProfile?.displayName ?: "Alap User",
+                    isOnline = !hideOnline,
+                    size = 62.dp
+                )
+                Spacer(modifier = Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = myProfile?.displayName ?: "Alap User",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        if (myProfile?.isVerified == true) {
+                            Spacer(modifier = Modifier.width(5.dp))
+                            VerifiedBadge()
+                        }
+                    }
+                    Text(
+                        text = "@${myProfile?.handle ?: "alap"}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = myProfile?.about ?: "Hey there! I am using Alap.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                IconButton(
+                    onClick = onEditProfile,
+                    modifier = Modifier.testTag("edit_profile_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Edit,
+                        contentDescription = "Edit profile",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
+
+            if (isAdmin) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f))
+                        .clickable(onClick = onOpenAdminPanel)
+                        .padding(horizontal = 16.dp, vertical = 14.dp)
+                        .testTag("open_admin_panel_button"),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.AdminPanelSettings,
+                            contentDescription = "Admin Panel",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Admin Console",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Users, moderation reports, logs & live controls",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
+            }
+
+            // Organized WhatsApp-style Sections
+            SettingsHubRow(
+                icon = Icons.Filled.Key,
+                title = "Account",
+                subtitle = "Verified Gmail, mobile number, Alap User ID",
+                onClick = { onOpenSection(SettingsSection.ACCOUNT) },
+                modifier = Modifier.testTag("settings_section_account")
+            )
+            SettingsHubRow(
+                icon = Icons.Filled.Lock,
+                title = "Privacy",
+                subtitle = "Number, User ID, last seen, read receipts, blocked ($blockedCount)",
+                onClick = { onOpenSection(SettingsSection.PRIVACY) },
+                modifier = Modifier.testTag("settings_section_privacy")
+            )
+            SettingsHubRow(
+                icon = Icons.Filled.Security,
+                title = "Security & App Lock",
+                subtitle = buildString {
+                    append(if (hasAppLockPin) "App Lock active" else "PIN & biometric off")
+                    append(" • ")
+                    append(if (screenSecurityEnabled) "Screenshots blocked" else "Screen privacy")
+                },
+                onClick = { onOpenSection(SettingsSection.SECURITY) },
+                modifier = Modifier.testTag("settings_section_security")
+            )
+            SettingsHubRow(
+                icon = Icons.Filled.Notifications,
+                title = "Notifications",
+                subtitle = when {
+                    notificationsEnabled && floatingGlassEnabled -> "Heads-up alerts & floating glass popups on"
+                    notificationsEnabled -> "Heads-up alerts on • Floating popup optional"
+                    else -> "Alerts paused • Tap to configure"
+                },
+                onClick = { onOpenSection(SettingsSection.NOTIFICATIONS) },
+                modifier = Modifier.testTag("settings_section_notifications")
+            )
+            SettingsHubRow(
+                icon = Icons.Filled.Star,
+                title = "Starred Messages",
+                subtitle = "$starredCount saved offline & synced",
+                onClick = onOpenStarredMessages,
+                modifier = Modifier.testTag("starred_messages_button")
+            )
+            SettingsHubRow(
+                icon = Icons.Filled.Storage,
+                title = "Storage and Data",
+                subtitle = "${if (localOnlyRelayMode) "Local-only relay" else "Cloud + local"} • $localStoredMessageCount cached • Backup",
+                onClick = { onOpenSection(SettingsSection.STORAGE) },
+                modifier = Modifier.testTag("settings_section_storage")
+            )
+            SettingsHubRow(
+                icon = Icons.Filled.Info,
+                title = "App Info & Portal",
+                subtitle = "Alap v${AlapConstants.CURRENT_APP_VERSION} (Build ${AlapConstants.CURRENT_APP_VERSION_CODE}) • Official websites",
+                onClick = { onOpenSection(SettingsSection.APP_INFO) },
+                modifier = Modifier.testTag("settings_section_app_info")
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onSignOut)
+                    .padding(horizontal = 16.dp, vertical = 16.dp)
+                    .testTag("sign_out_button"),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.error.copy(alpha = 0.1f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Logout,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Sign Out",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    Text(
+                        text = "Sign out from this device",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "from\nAlap • v${AlapConstants.CURRENT_APP_VERSION}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 24.dp)
+            )
+        }
+    }
+}
+
+@Composable
 private fun PinSetupDialog(
     title: String,
     subtitle: String,
@@ -1061,63 +776,6 @@ private fun PinSetupDialog(
             }
         }
     )
-}
-
-@Composable
-private fun AccountInfoLine(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    value: String,
-    visibilityBadge: String,
-    onCopy: (() -> Unit)?
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(18.dp)
-        )
-        Spacer(modifier = Modifier.width(10.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = value,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-        }
-        Surface(
-            shape = RoundedCornerShape(8.dp),
-            color = if (visibilityBadge == "Public") MaterialTheme.colorScheme.primaryContainer else Color.White,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
-        ) {
-            Text(
-                text = visibilityBadge,
-                style = MaterialTheme.typography.labelSmall,
-                color = if (visibilityBadge == "Public") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-            )
-        }
-        if (onCopy != null) {
-            IconButton(onClick = onCopy, modifier = Modifier.size(34.dp)) {
-                Icon(
-                    imageVector = Icons.Filled.ContentCopy,
-                    contentDescription = "Copy $label",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-        }
-    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

@@ -79,4 +79,42 @@ object WebsiteUpdateChecker {
         if (b.isBlank()) return a
         return if (isVersionLower(a, b)) b else a
     }
+
+    fun extractVersionString(rawTag: String): String? {
+        val trimmed = rawTag.trim()
+        if (trimmed.isBlank()) return null
+        val match = Regex("""v?(\d+(?:\.\d+)+)""", RegexOption.IGNORE_CASE).find(trimmed)
+        return match?.groupValues?.getOrNull(1)
+    }
+
+    fun isVersionMatchedOrNewer(
+        currentVersion: String = AlapConstants.CURRENT_APP_VERSION,
+        targetVersionTag: String
+    ): Boolean {
+        val extracted = extractVersionString(targetVersionTag) ?: return false
+        return !isVersionLower(currentVersion, extracted)
+    }
+
+    fun shouldShowAnnouncement(
+        announcement: com.example.data.model.Announcement?,
+        currentVersionName: String = AlapConstants.CURRENT_APP_VERSION,
+        currentVersionCode: Long = AlapConstants.CURRENT_APP_VERSION_CODE,
+        effectiveLatestVersionName: String = AlapConstants.CURRENT_APP_VERSION,
+        effectiveLatestVersionCode: Long = AlapConstants.CURRENT_APP_VERSION_CODE
+    ): Boolean {
+        if (announcement == null) return false
+        val tagVersion = extractVersionString(announcement.versionTag)
+        if (tagVersion != null) {
+            return isVersionLower(currentVersionName, tagVersion)
+        }
+        if (announcement.priority == "update") {
+            val titleVersion = extractVersionString(announcement.title)
+            if (titleVersion != null) {
+                return isVersionLower(currentVersionName, titleVersion)
+            }
+            return isVersionLower(currentVersionName, effectiveLatestVersionName) ||
+                currentVersionCode < effectiveLatestVersionCode
+        }
+        return true
+    }
 }

@@ -14,6 +14,7 @@ import com.example.data.local.LocalPreferencesManager
 import com.example.data.model.Announcement
 import com.example.data.model.Chat
 import com.example.util.NotificationHelper
+import com.example.util.WebsiteUpdateChecker
 import com.google.firebase.Firebase
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.auth
@@ -46,6 +47,7 @@ class AlapBackgroundSyncWorker(
                 .get()
                 .await()
             val topAnnouncement = annSnap.toObjects(Announcement::class.java)
+                .filter { WebsiteUpdateChecker.shouldShowAnnouncement(it) }
                 .maxByOrNull { it.createdAt ?: Timestamp(0, 0) }
             val lastNotifiedAnn = prefs.lastNotifiedAnnouncementId.first()
             if (topAnnouncement != null && topAnnouncement.id.isNotBlank() && topAnnouncement.id != lastNotifiedAnn) {

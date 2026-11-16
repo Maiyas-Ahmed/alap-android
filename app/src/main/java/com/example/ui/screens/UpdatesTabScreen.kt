@@ -94,9 +94,15 @@ fun UpdatesTabScreen(
     var activeStatus by remember { mutableStateOf<StatusUpdate?>(null) }
     val downloadState by ApkUpdateManager.state.collectAsStateWithLifecycle()
 
+    val showAnnouncementNotice = WebsiteUpdateChecker.shouldShowAnnouncement(
+        announcement = visibleAnnouncement,
+        effectiveLatestVersionName = latestVersionName,
+        effectiveLatestVersionCode = latestVersionCode
+    )
     val hasNewerUpdate = latestVersionCode > AlapConstants.CURRENT_APP_VERSION_CODE ||
         WebsiteUpdateChecker.isVersionLower(AlapConstants.CURRENT_APP_VERSION, latestVersionName) ||
-        (visibleAnnouncement != null && latestApkUrl.isNotBlank() &&
+        (showAnnouncementNotice && latestApkUrl.isNotBlank() &&
+            visibleAnnouncement != null &&
             (visibleAnnouncement.priority == "update" || visibleAnnouncement.versionTag.isNotBlank()))
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -275,8 +281,8 @@ fun UpdatesTabScreen(
             }
         }
 
-        // Active Admin Announcement Card if present
-        if (visibleAnnouncement != null) {
+        // Active Admin Announcement Card if present and version-relevant
+        if (visibleAnnouncement != null && showAnnouncementNotice) {
             Surface(
                 shape = RoundedCornerShape(16.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),

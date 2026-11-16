@@ -643,8 +643,14 @@ private fun AuthenticatedAlapShell(
         }
     }
 
-    // Trigger Dual Notification whenever Admin publishes a new active announcement
-    val topAnnouncement = announcements.firstOrNull()
+    // Trigger Dual Notification whenever Admin publishes a new active announcement for a newer/unmatched version
+    val topAnnouncement = announcements.firstOrNull { ann ->
+        WebsiteUpdateChecker.shouldShowAnnouncement(
+            announcement = ann,
+            effectiveLatestVersionName = effectiveLatestVersionName,
+            effectiveLatestVersionCode = effectiveLatestVersionCode
+        )
+    }
     LaunchedEffect(topAnnouncement?.id, notificationsEnabled, floatingGlassEnabled, lastNotifiedId, isAppInForeground) {
         val savedNotifiedId = lastNotifiedId ?: return@LaunchedEffect
         if (topAnnouncement != null &&
@@ -1089,7 +1095,7 @@ private fun HomeScaffoldScreen(
                                         }
                                     )
                                     DropdownMenuItem(
-                                        text = { Text("Profile, Privacy & Security") },
+                                        text = { Text("Settings") },
                                         leadingIcon = { Icon(Icons.Filled.Settings, contentDescription = null) },
                                         onClick = {
                                             showMenu = false
