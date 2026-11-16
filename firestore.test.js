@@ -1050,4 +1050,103 @@ test("Group studyLockToAdmin: blocks non-admin from adding study_items, quizzes,
   );
 });
 
+test("Teacher Plans & Billing Ledger: admin manages plans and assigns teacher plans; regular users cannot self-assign", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID, { email: "alice@gmail.com", email_verified: true }).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID, { email: "bob@gmail.com", email_verified: true }).firestore();
+  const adminDb = testEnv.authenticatedContext(ADMIN_UID, { email: ADMIN_EMAIL, email_verified: true }).firestore();
+  const ts = nowTs();
+
+  await assertSucceeds(
+    aliceDb.collection("users").doc(ALICE_UID).set({
+      ...makeUserProfile(ALICE_UID, "Alice"),
+      accountType: "personal",
+      isTeacher: false,
+    })
+  );
+
+  // Regular user cannot create a teacher plan or billing record
+  await assertFails(
+    aliceDb.collection("teacher_plans").doc("monthly_pro").set({
+      planId: "monthly_pro",
+      name: "Teacher Pro Monthly",
+      billingCycle: "monthly",
+      priceBdt: 499,
+      maxStudyGroups: 20,
+      maxStudentsPerGroup: 200,
+      features: ["TR Badge", "Up to 20 Study Groups"],
+      isActive: true,
+      sortOrder: 1,
+      createdBy: ALICE_UID,
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+
+  // Admin creates monthly teacher plan
+  await assertSucceeds(
+    adminDb.collection("teacher_plans").doc("monthly_pro").set({
+      planId: "monthly_pro",
+      name: "Teacher Pro Monthly",
+      billingCycle: "monthly",
+      priceBdt: 499,
+      priceUsd: 5,
+      maxStudyGroups: 20,
+      maxStudentsPerGroup: 200,
+      features: ["Verified TR Badge", "Up to 20 Study Groups", "Admin-Locked Quizzes"],
+      isActive: true,
+      sortOrder: 1,
+      createdBy: ADMIN_UID,
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+
+  // Signed-in teacher/user can read plans, only admin can assign plan to user
+  await assertSucceeds(aliceDb.collection("teacher_plans").doc("monthly_pro").get());
+  await assertFails(
+    aliceDb.collection("users").doc(ALICE_UID).update({
+      teacherPlanId: "monthly_pro",
+      teacherSubscriptionStatus: "active",
+      updatedAt: nowTs(),
+    })
+  );
+
+  await assertSucceeds(
+    adminDb.collection("users").doc(ALICE_UID).update({
+      isTeacher: true,
+      accountType: "teacher",
+      teacherSubject: "Physics",
+      teacherPlanId: "monthly_pro",
+      teacherPlanName: "Teacher Pro Monthly",
+      teacherBillingCycle: "monthly",
+      teacherSubscriptionStatus: "free_launch",
+      teacherPlanExpiresAtEpochMs: 0,
+      updatedAt: nowTs(),
+    })
+  );
+
+  // Admin writes manual billing ledger record; Alice (owner) can read hers, Bob cannot read Alice's
+  await assertSucceeds(
+    adminDb.collection("teacher_billing_records").doc("rec_1").set({
+      teacherUid: ALICE_UID,
+      teacherName: "Alice",
+      planId: "monthly_pro",
+      planName: "Teacher Pro Monthly",
+      billingCycle: "monthly",
+      amountBdt: 0,
+      paymentMethod: "free_launch",
+      referenceNote: "Free early creator phase",
+      status: "waived",
+      periodStartEpochMs: Date.now(),
+      periodEndEpochMs: Date.now() + 86400000 * 30,
+      recordedBy: ADMIN_UID,
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+  await assertSucceeds(aliceDb.collection("teacher_billing_records").doc("rec_1").get());
+  await assertFails(bobDb.collection("teacher_billing_records").doc("rec_1").get());
+});
+
+
 

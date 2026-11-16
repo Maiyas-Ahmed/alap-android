@@ -46,6 +46,11 @@ data class UserProfile(
     @get:PropertyName("isTeacher") @field:PropertyName("isTeacher")
     val isTeacher: Boolean = false,
     val teacherSubject: String = "",
+    val teacherPlanId: String = "",
+    val teacherPlanName: String = "",
+    val teacherBillingCycle: String = "none", // "none", "free", "monthly", "yearly"
+    val teacherSubscriptionStatus: String = "none", // "none", "free_launch", "active", "grace", "expired"
+    val teacherPlanExpiresAtEpochMs: Long = 0L,
     @ServerTimestamp val lastSeenAt: Timestamp? = null,
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null
@@ -265,8 +270,8 @@ data class RemoteVersionInfo(
 )
 
 object AlapConstants {
-    const val CURRENT_APP_VERSION = "1.0.1"
-    const val CURRENT_APP_VERSION_CODE = 2L
+    const val CURRENT_APP_VERSION = "1.0.2"
+    const val CURRENT_APP_VERSION_CODE = 3L
     const val PUBLIC_WEBSITE_URL = "https://alap-chat.netlify.app"
     const val UPDATE_PORTAL_URL = "https://alap-updates.netlify.app"
     const val UPDATE_VERSION_JSON_URL = "https://alap-updates.netlify.app/version.json"

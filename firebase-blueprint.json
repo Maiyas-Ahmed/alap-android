@@ -29,6 +29,11 @@
         "accountType": { "type": "string", "enum": ["student", "personal", "teacher"], "description": "Account tier: locked student, 18+ personal, or admin-verified teacher" },
         "isTeacher": { "type": "boolean", "description": "Admin-assigned verified teacher status (TR badge)" },
         "teacherSubject": { "type": "string", "description": "Optional teacher subject or coaching specialty" },
+        "teacherPlanId": { "type": "string", "description": "Admin-assigned teacher subscription plan ID" },
+        "teacherPlanName": { "type": "string", "description": "Display name of assigned teacher plan" },
+        "teacherBillingCycle": { "type": "string", "enum": ["none", "free", "monthly", "yearly"], "description": "Teacher billing cycle" },
+        "teacherSubscriptionStatus": { "type": "string", "enum": ["none", "free_launch", "active", "grace", "expired"], "description": "Teacher subscription status" },
+        "teacherPlanExpiresAtEpochMs": { "type": "integer", "description": "Optional plan expiration timestamp in ms (0 = unlimited/free launch)" },
         "lastSeenAt": { "type": "string", "format": "date-time", "description": "Server timestamp of last activity" },
         "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp of profile creation" },
         "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp of profile update" }
@@ -361,6 +366,49 @@
         "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
       },
       "required": ["chatId", "itemType", "title", "details", "scheduleText", "examDateEpochMs", "createdBy", "createdByName", "participantUids", "createdAt", "updatedAt"]
+    },
+    "TeacherPlan": {
+      "title": "TeacherPlan",
+      "description": "Pre-configured monthly or yearly Teacher subscription plan managed in Admin Console (no payment gateway required yet).",
+      "type": "object",
+      "properties": {
+        "planId": { "type": "string", "description": "Unique plan identifier" },
+        "name": { "type": "string", "description": "Plan display title" },
+        "billingCycle": { "type": "string", "enum": ["free", "monthly", "yearly"], "description": "Billing frequency" },
+        "priceBdt": { "type": "integer", "description": "Planned price in BDT (0 for free launch)" },
+        "priceUsd": { "type": "integer", "description": "Optional international price in USD" },
+        "maxStudyGroups": { "type": "integer", "description": "Maximum study groups included in plan" },
+        "maxStudentsPerGroup": { "type": "integer", "description": "Maximum students per group" },
+        "features": { "type": "array", "description": "Bullet list of included plan benefits" },
+        "isActive": { "type": "boolean", "description": "Whether plan is active" },
+        "sortOrder": { "type": "integer", "description": "Display order" },
+        "createdBy": { "type": "string", "description": "Admin UID" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["planId", "name", "billingCycle", "priceBdt", "maxStudyGroups", "maxStudentsPerGroup", "features", "isActive", "sortOrder", "createdBy", "createdAt", "updatedAt"]
+    },
+    "TeacherBillingRecord": {
+      "title": "TeacherBillingRecord",
+      "description": "Admin-managed manual teacher subscription ledger ready for future monetization without live payment gateway.",
+      "type": "object",
+      "properties": {
+        "teacherUid": { "type": "string", "description": "Teacher user UID" },
+        "teacherName": { "type": "string", "description": "Teacher display name" },
+        "planId": { "type": "string", "description": "Assigned plan ID" },
+        "planName": { "type": "string", "description": "Assigned plan title" },
+        "billingCycle": { "type": "string", "enum": ["free", "monthly", "yearly"], "description": "Billing cycle" },
+        "amountBdt": { "type": "integer", "description": "Fee amount in BDT" },
+        "paymentMethod": { "type": "string", "enum": ["free_launch", "manual_bkash", "manual_nagad", "manual_bank", "manual_cash", "promo"], "description": "Manual or promo payment method" },
+        "referenceNote": { "type": "string", "description": "Transaction ID or admin note" },
+        "status": { "type": "string", "enum": ["active", "pending", "paid", "expired", "waived"], "description": "Subscription ledger status" },
+        "periodStartEpochMs": { "type": "integer", "description": "Period start epoch ms" },
+        "periodEndEpochMs": { "type": "integer", "description": "Period end epoch ms" },
+        "recordedBy": { "type": "string", "description": "Admin UID" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["teacherUid", "teacherName", "planId", "planName", "billingCycle", "amountBdt", "paymentMethod", "referenceNote", "status", "periodStartEpochMs", "periodEndEpochMs", "recordedBy", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -419,6 +467,14 @@
     "/device_tokens/{userId}": {
       "schema": { "$ref": "#/entities/DevicePushToken" },
       "description": "FCM push registration tokens for background/killed-app notifications."
+    },
+    "/teacher_plans/{planId}": {
+      "schema": { "$ref": "#/entities/TeacherPlan" },
+      "description": "Admin-configured monthly/yearly teacher plans ready for future monetization."
+    },
+    "/teacher_billing_records/{recordId}": {
+      "schema": { "$ref": "#/entities/TeacherBillingRecord" },
+      "description": "Admin-managed manual subscription ledger and trial/waiver history for teachers."
     }
   }
 }

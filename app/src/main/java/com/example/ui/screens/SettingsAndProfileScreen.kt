@@ -631,6 +631,9 @@ private fun SettingsHubContent(
                             } else if (myProfile?.isStudent == true && myProfile.studentClass.isNotBlank()) {
                                 append(" • ${myProfile.studentClass}")
                             }
+                            if (myProfile?.isTeacher == true && myProfile.teacherPlanName.isNotBlank()) {
+                                append(" • Plan: ${myProfile.teacherPlanName}")
+                            }
                         },
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary

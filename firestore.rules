@@ -76,6 +76,11 @@ service cloud.firestore {
              (!('accountType' in data) || data.accountType in ['student', 'personal', 'teacher']) &&
              (!('isTeacher' in data) || data.isTeacher is bool) &&
              (!('teacherSubject' in data) || (data.teacherSubject is string && data.teacherSubject.size() <= 80)) &&
+             (!('teacherPlanId' in data) || (data.teacherPlanId is string && data.teacherPlanId.size() <= 64)) &&
+             (!('teacherPlanName' in data) || (data.teacherPlanName is string && data.teacherPlanName.size() <= 60)) &&
+             (!('teacherBillingCycle' in data) || data.teacherBillingCycle in ['none', 'free', 'monthly', 'yearly']) &&
+             (!('teacherSubscriptionStatus' in data) || data.teacherSubscriptionStatus in ['none', 'free_launch', 'active', 'grace', 'expired']) &&
+             (!('teacherPlanExpiresAtEpochMs' in data) || (data.teacherPlanExpiresAtEpochMs is int && data.teacherPlanExpiresAtEpochMs >= 0)) &&
              data.lastSeenAt is timestamp && data.lastSeenAt <= request.time &&
              data.createdAt is timestamp && data.createdAt <= request.time &&
              data.updatedAt is timestamp && data.updatedAt <= request.time;
@@ -259,6 +264,39 @@ service cloud.firestore {
              data.chatId is string && data.chatId.size() <= 128 &&
              data.reason is string && data.reason.size() >= 1 && data.reason.size() <= 300 &&
              data.status in ['open', 'resolved', 'dismissed'] &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidTeacherPlan(data) {
+      return data.planId is string && data.planId.size() >= 1 && data.planId.size() <= 64 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 60 &&
+             data.billingCycle in ['free', 'monthly', 'yearly'] &&
+             data.priceBdt is int && data.priceBdt >= 0 && data.priceBdt <= 1000000 &&
+             (!('priceUsd' in data) || (data.priceUsd is int && data.priceUsd >= 0 && data.priceUsd <= 100000)) &&
+             data.maxStudyGroups is int && data.maxStudyGroups >= 1 && data.maxStudyGroups <= 1000 &&
+             data.maxStudentsPerGroup is int && data.maxStudentsPerGroup >= 2 && data.maxStudentsPerGroup <= 10000 &&
+             isStringList(data.features, 0, 15) &&
+             data.isActive is bool &&
+             data.sortOrder is int && data.sortOrder >= 0 && data.sortOrder <= 1000 &&
+             data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidTeacherBillingRecord(data) {
+      return data.teacherUid is string && data.teacherUid.size() >= 1 && data.teacherUid.size() <= 128 &&
+             data.teacherName is string && data.teacherName.size() >= 1 && data.teacherName.size() <= 60 &&
+             data.planId is string && data.planId.size() >= 1 && data.planId.size() <= 64 &&
+             data.planName is string && data.planName.size() >= 1 && data.planName.size() <= 60 &&
+             data.billingCycle in ['free', 'monthly', 'yearly'] &&
+             data.amountBdt is int && data.amountBdt >= 0 && data.amountBdt <= 1000000 &&
+             data.paymentMethod in ['free_launch', 'manual_bkash', 'manual_nagad', 'manual_bank', 'manual_cash', 'promo'] &&
+             data.referenceNote is string && data.referenceNote.size() <= 120 &&
+             data.status in ['active', 'pending', 'paid', 'expired', 'waived'] &&
+             data.periodStartEpochMs is int && data.periodStartEpochMs >= 0 &&
+             data.periodEndEpochMs is int && data.periodEndEpochMs >= 0 &&
+             data.recordedBy is string && data.recordedBy.size() >= 1 && data.recordedBy.size() <= 128 &&
              data.createdAt is timestamp && data.createdAt <= request.time &&
              data.updatedAt is timestamp && data.updatedAt <= request.time;
     }
@@ -860,6 +898,70 @@ service cloud.firestore {
                                incoming().keys().hasOnly(['userId', 'token', 'platform', 'updatedAt']) &&
                                isValidDevicePushToken(incoming());
       allow delete: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isAdmin());
+    }
+
+    // 11. Teacher Subscription Plans Catalog (Admin-Managed, Signed-In Read)
+    match /teacher_plans/{planId} {
+      allow get, list: if isSignedIn() && isValidId(planId);
+      allow create: if isAdmin() &&
+                       isValidId(planId) &&
+                       incoming().planId == planId &&
+                       incoming().createdBy == request.auth.uid &&
+                       incoming().keys().hasAll([
+                         'planId', 'name', 'billingCycle', 'priceBdt',
+                         'maxStudyGroups', 'maxStudentsPerGroup', 'features',
+                         'isActive', 'sortOrder', 'createdBy', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'planId', 'name', 'billingCycle', 'priceBdt', 'priceUsd',
+                         'maxStudyGroups', 'maxStudentsPerGroup', 'features',
+                         'isActive', 'sortOrder', 'createdBy', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidTeacherPlan(incoming());
+      allow update: if isAdmin() &&
+                       isValidId(planId) &&
+                       isValidTeacherPlan(incoming()) &&
+                       incoming().planId == existing().planId &&
+                       incoming().createdBy == existing().createdBy &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'name', 'billingCycle', 'priceBdt', 'priceUsd',
+                         'maxStudyGroups', 'maxStudentsPerGroup', 'features',
+                         'isActive', 'sortOrder', 'updatedAt'
+                       ]);
+      allow delete: if isAdmin() && isValidId(planId);
+    }
+
+    // 12. Teacher Manual Billing & Plan Assignment Ledger (Admin Write, Admin/Teacher Owner Read)
+    match /teacher_billing_records/{recordId} {
+      allow get: if isSignedIn() && isValidId(recordId) && (isAdmin() || (resource != null && existing().teacherUid == request.auth.uid));
+      allow list: if isSignedIn() && (isAdmin() || existing().teacherUid == request.auth.uid);
+      allow create: if isAdmin() &&
+                       isValidId(recordId) &&
+                       incoming().recordedBy == request.auth.uid &&
+                       incoming().keys().hasAll([
+                         'teacherUid', 'teacherName', 'planId', 'planName', 'billingCycle',
+                         'amountBdt', 'paymentMethod', 'referenceNote', 'status',
+                         'periodStartEpochMs', 'periodEndEpochMs', 'recordedBy', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'teacherUid', 'teacherName', 'planId', 'planName', 'billingCycle',
+                         'amountBdt', 'paymentMethod', 'referenceNote', 'status',
+                         'periodStartEpochMs', 'periodEndEpochMs', 'recordedBy', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidTeacherBillingRecord(incoming());
+      allow update: if isAdmin() &&
+                       isValidId(recordId) &&
+                       isValidTeacherBillingRecord(incoming()) &&
+                       incoming().teacherUid == existing().teacherUid &&
+                       incoming().recordedBy == existing().recordedBy &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'teacherName', 'planId', 'planName', 'billingCycle',
+                         'amountBdt', 'paymentMethod', 'referenceNote', 'status',
+                         'periodStartEpochMs', 'periodEndEpochMs', 'updatedAt'
+                       ]);
+      allow delete: if isAdmin() && isValidId(recordId);
     }
   }
 }

@@ -11,9 +11,9 @@ import org.junit.Test
 
 class ExampleUnitTest {
   @Test
-  fun appVersion_isUpdatedTo101Build2() {
-    assertEquals("1.0.1", AlapConstants.CURRENT_APP_VERSION)
-    assertEquals(2L, AlapConstants.CURRENT_APP_VERSION_CODE)
+  fun appVersion_isUpdatedTo102Build3() {
+    assertEquals("1.0.2", AlapConstants.CURRENT_APP_VERSION)
+    assertEquals(3L, AlapConstants.CURRENT_APP_VERSION_CODE)
     assertEquals("https://alap-chat.netlify.app", AlapConstants.PUBLIC_WEBSITE_URL)
     assertEquals("https://alap-updates.netlify.app/version.json", AlapConstants.UPDATE_VERSION_JSON_URL)
   }
@@ -32,43 +32,43 @@ class ExampleUnitTest {
   fun announcementBanner_hidesWhenAppVersionMatches_andShowsWhenVersionDoesNotMatch() {
     val matchingUpdate = Announcement(
       id = "ann1",
-      title = "Alap v1.0.1 Update",
+      title = "Alap v1.0.2 Update",
       message = "Bug fixes",
-      versionTag = "v1.0.1",
+      versionTag = "v1.0.2",
       priority = "update"
     )
     assertFalse(
       WebsiteUpdateChecker.shouldShowAnnouncement(
         announcement = matchingUpdate,
-        currentVersionName = "1.0.1",
-        currentVersionCode = 2L
+        currentVersionName = "1.0.2",
+        currentVersionCode = 3L
       )
     )
 
-    val matchingUrgent = matchingUpdate.copy(priority = "urgent", versionTag = "1.0.1")
+    val matchingUrgent = matchingUpdate.copy(priority = "urgent", versionTag = "1.0.2")
     assertFalse(
       WebsiteUpdateChecker.shouldShowAnnouncement(
         announcement = matchingUrgent,
-        currentVersionName = "1.0.1",
-        currentVersionCode = 2L
+        currentVersionName = "1.0.2",
+        currentVersionCode = 3L
       )
     )
 
-    val olderUpdate = matchingUpdate.copy(versionTag = "v1.0.0")
+    val olderUpdate = matchingUpdate.copy(versionTag = "v1.0.1")
     assertFalse(
       WebsiteUpdateChecker.shouldShowAnnouncement(
         announcement = olderUpdate,
-        currentVersionName = "1.0.1",
-        currentVersionCode = 2L
+        currentVersionName = "1.0.2",
+        currentVersionCode = 3L
       )
     )
 
-    val newerUpdate = matchingUpdate.copy(title = "Alap v1.0.2 Ready", versionTag = "v1.0.2")
+    val newerUpdate = matchingUpdate.copy(title = "Alap v1.0.3 Ready", versionTag = "v1.0.3")
     assertTrue(
       WebsiteUpdateChecker.shouldShowAnnouncement(
         announcement = newerUpdate,
-        currentVersionName = "1.0.1",
-        currentVersionCode = 2L
+        currentVersionName = "1.0.2",
+        currentVersionCode = 3L
       )
     )
 
@@ -82,8 +82,8 @@ class ExampleUnitTest {
     assertTrue(
       WebsiteUpdateChecker.shouldShowAnnouncement(
         announcement = generalNotice,
-        currentVersionName = "1.0.1",
-        currentVersionCode = 2L
+        currentVersionName = "1.0.2",
+        currentVersionCode = 3L
       )
     )
   }
