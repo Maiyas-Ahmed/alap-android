@@ -112,7 +112,7 @@ object ApkUpdateManager {
     ) {
         val cleanUrl = normalizeDownloadUrl(apkUrl)
         if (cleanUrl.isBlank() || (!cleanUrl.startsWith("https://") && !cleanUrl.startsWith("http://"))) {
-            _state.value = UpdateDownloadState.Error("অ্যাডমিন প্যানেল বা আপডেট পোর্টালে সঠিক APK লিংক দেওয়া হয়নি।")
+            _state.value = UpdateDownloadState.Error("আপডেট পোর্টালে সঠিক APK লিংক পাওয়া যায়নি।")
             return
         }
 
@@ -170,7 +170,7 @@ object ApkUpdateManager {
                 val statusCode = activeConn.responseCode
                 if (statusCode !in 200..299) {
                     _state.value = UpdateDownloadState.Error(
-                        message = "APK ডাউনলোড ব্যর্থ (HTTP $statusCode)। GitHub বা Admin-এ APK লিংকটি ঠিক আছে কি না দেখুন।",
+                        message = "APK ডাউনলোড ব্যর্থ (HTTP $statusCode)। আপডেট পোর্টাল বা GitHub Release লিংকটি দেখুন।",
                         fallbackUrl = cleanUrl
                     )
                     return@launch

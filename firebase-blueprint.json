@@ -23,6 +23,12 @@
         "isOnline": { "type": "boolean", "description": "Presence indicator" },
         "isVerified": { "type": "boolean", "description": "Admin-assigned verified badge" },
         "isSuspended": { "type": "boolean", "description": "Admin moderation suspension state" },
+        "isStudent": { "type": "boolean", "description": "Optional Student Mode flag (ST badge)" },
+        "studentClass": { "type": "string", "description": "Optional class, batch, or department" },
+        "studentSubject": { "type": "string", "description": "Optional favorite or focus subject" },
+        "accountType": { "type": "string", "enum": ["student", "personal", "teacher"], "description": "Account tier: locked student, 18+ personal, or admin-verified teacher" },
+        "isTeacher": { "type": "boolean", "description": "Admin-assigned verified teacher status (TR badge)" },
+        "teacherSubject": { "type": "string", "description": "Optional teacher subject or coaching specialty" },
         "lastSeenAt": { "type": "string", "format": "date-time", "description": "Server timestamp of last activity" },
         "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp of profile creation" },
         "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp of profile update" }
@@ -58,6 +64,7 @@
         "email": { "type": "string", "description": "Verified Gmail address" },
         "phoneNumber": { "type": "string", "description": "User's private mobile number" },
         "alapId": { "type": "string", "description": "User's Alap User ID" },
+        "birthYear": { "type": "integer", "description": "Private birth year for under-18 student account age lock" },
         "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
         "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
       },
@@ -178,9 +185,12 @@
         "createdBy": { "type": "string", "description": "Creator UID" },
         "lastMessageText": { "type": "string", "description": "Preview of last message" },
         "lastMessageSenderId": { "type": "string", "description": "Sender UID of last message" },
-        "lastMessageType": { "type": "string", "enum": ["text", "sticker", "poll", "system"], "description": "Type of last message" },
+        "lastMessageType": { "type": "string", "enum": ["text", "sticker", "poll", "quiz", "flashcard", "system"], "description": "Type of last message" },
         "lastMessageAt": { "type": "string", "format": "date-time", "description": "Server timestamp of last message" },
         "disappearingHours": { "type": "integer", "description": "Auto-expire hours: 0, 24, or 168" },
+        "isStudyGroup": { "type": "boolean", "description": "Whether this group is a Study Group" },
+        "studyLockToAdmin": { "type": "boolean", "description": "If true, only group admins/teachers can add Study Board items, quizzes, and flashcards" },
+        "inviteCode": { "type": "string", "description": "Optional 6-character Study Group invite code" },
         "typingUids": { "type": "array", "description": "Currently typing UIDs" },
         "pinnedByUids": { "type": "array", "description": "UIDs who pinned this chat" },
         "mutedByUids": { "type": "array", "description": "UIDs who muted this chat" },
@@ -219,11 +229,15 @@
         "senderId": { "type": "string", "description": "Author UID" },
         "senderName": { "type": "string", "description": "Author display name snapshot" },
         "text": { "type": "string", "description": "Message body" },
-        "messageType": { "type": "string", "enum": ["text", "sticker", "poll", "system"], "description": "Message payload type" },
+        "messageType": { "type": "string", "enum": ["text", "sticker", "poll", "quiz", "flashcard", "system"], "description": "Message payload type" },
         "stickerId": { "type": "string", "description": "Optional bundled local sticker key" },
-        "pollQuestion": { "type": "string", "description": "Optional poll question" },
-        "pollOptions": { "type": "array", "description": "Optional poll choices" },
+        "pollQuestion": { "type": "string", "description": "Optional poll or quiz question" },
+        "pollOptions": { "type": "array", "description": "Optional poll or quiz choices" },
         "pollVotes": { "type": "object", "description": "Map of UID to selected option index" },
+        "correctOptionIndex": { "type": "integer", "description": "Zero-based correct answer index for quiz messages" },
+        "quizExplanation": { "type": "string", "description": "Optional explanation shown after answering a quiz" },
+        "flashcardFront": { "type": "string", "description": "Question or front prompt for flashcard messages" },
+        "flashcardBack": { "type": "string", "description": "Answer or back explanation for flashcard messages" },
         "replyToMessageId": { "type": "string", "description": "Optional quoted message ID" },
         "replyToSenderName": { "type": "string", "description": "Optional quoted sender name" },
         "replyToPreview": { "type": "string", "description": "Optional quoted snippet" },
@@ -312,6 +326,41 @@
         "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
       },
       "required": ["reporterUid", "targetUid", "targetName", "chatId", "reason", "status", "createdAt", "updatedAt"]
+    },
+    "StudyInvite": {
+      "title": "StudyInvite",
+      "description": "6-character Study Group invite lookup record for joining without exposing phone numbers.",
+      "type": "object",
+      "properties": {
+        "inviteCode": { "type": "string", "description": "Uppercase alphanumeric invite code" },
+        "chatId": { "type": "string", "description": "Target group chat ID" },
+        "title": { "type": "string", "description": "Study group title" },
+        "description": { "type": "string", "description": "Study group description" },
+        "createdBy": { "type": "string", "description": "Creator UID" },
+        "isActive": { "type": "boolean", "description": "Whether the invite code accepts joins" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["inviteCode", "chatId", "title", "description", "createdBy", "isActive", "createdAt", "updatedAt"]
+    },
+    "StudyItem": {
+      "title": "StudyItem",
+      "description": "Shared note, class routine slot, or exam countdown inside a Study Chat.",
+      "type": "object",
+      "properties": {
+        "chatId": { "type": "string", "description": "Parent chat ID" },
+        "itemType": { "type": "string", "enum": ["note", "routine", "exam"], "description": "Study board item type" },
+        "title": { "type": "string", "description": "Note title, subject name, or exam name" },
+        "details": { "type": "string", "description": "Detailed summary, chapter, or syllabus" },
+        "scheduleText": { "type": "string", "description": "Day/time label for routine or exam hall" },
+        "examDateEpochMs": { "type": "integer", "description": "Optional exam target epoch ms" },
+        "createdBy": { "type": "string", "description": "Creator UID" },
+        "createdByName": { "type": "string", "description": "Creator display name" },
+        "participantUids": { "type": "array", "description": "Denormalized chat participant UIDs" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["chatId", "itemType", "title", "details", "scheduleText", "examDateEpochMs", "createdBy", "createdByName", "participantUids", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -342,6 +391,14 @@
     "/chats/{chatId}/messages/{messageId}": {
       "schema": { "$ref": "#/entities/ChatMessage" },
       "description": "Messages inside a chat room with denormalized participantUids."
+    },
+    "/chats/{chatId}/study_items/{itemId}": {
+      "schema": { "$ref": "#/entities/StudyItem" },
+      "description": "Shared Study Board notes, routines, and exam countdowns inside a chat."
+    },
+    "/study_invites/{inviteCode}": {
+      "schema": { "$ref": "#/entities/StudyInvite" },
+      "description": "Lookup index for joining Study Groups by short invite code."
     },
     "/statuses/{statusId}": {
       "schema": { "$ref": "#/entities/StatusUpdate" },

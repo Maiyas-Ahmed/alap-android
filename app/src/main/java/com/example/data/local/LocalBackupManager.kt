@@ -6,6 +6,7 @@ import android.os.Environment
 import com.example.data.local.room.AlapLocalDao
 import com.example.data.local.room.LocalChatEntity
 import com.example.data.local.room.LocalMessageEntity
+import com.example.data.local.room.LocalStudyItemEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -25,10 +26,11 @@ class LocalBackupManager(
     suspend fun buildBackupJson(ownerUid: String): String = withContext(Dispatchers.IO) {
         val chats = dao.getAllChatsSnapshot()
         val messages = dao.getAllMessagesSnapshot()
+        val studyItems = dao.getAllStudyItemsSnapshot()
 
         val root = JSONObject().apply {
             put("app", "Alap")
-            put("schemaVersion", 1)
+            put("schemaVersion", 2)
             put("ownerUid", ownerUid)
             put("exportedAtEpochMs", System.currentTimeMillis())
 
@@ -49,6 +51,9 @@ class LocalBackupManager(
                         put("lastMessageType", c.lastMessageType)
                         put("lastMessageAtEpochMs", c.lastMessageAtEpochMs)
                         put("disappearingHours", c.disappearingHours)
+                        put("isStudyGroup", c.isStudyGroup)
+                        put("studyLockToAdmin", c.studyLockToAdmin)
+                        put("inviteCode", c.inviteCode)
                         put("pinnedByUidsJson", c.pinnedByUidsJson)
                         put("mutedByUidsJson", c.mutedByUidsJson)
                         put("archivedByUidsJson", c.archivedByUidsJson)
@@ -74,6 +79,10 @@ class LocalBackupManager(
                         put("pollQuestion", m.pollQuestion ?: JSONObject.NULL)
                         put("pollOptionsJson", m.pollOptionsJson ?: JSONObject.NULL)
                         put("pollVotesJson", m.pollVotesJson ?: JSONObject.NULL)
+                        put("correctOptionIndex", m.correctOptionIndex ?: JSONObject.NULL)
+                        put("quizExplanation", m.quizExplanation ?: JSONObject.NULL)
+                        put("flashcardFront", m.flashcardFront ?: JSONObject.NULL)
+                        put("flashcardBack", m.flashcardBack ?: JSONObject.NULL)
                         put("replyToMessageId", m.replyToMessageId ?: JSONObject.NULL)
                         put("replyToSenderName", m.replyToSenderName ?: JSONObject.NULL)
                         put("replyToPreview", m.replyToPreview ?: JSONObject.NULL)
@@ -90,6 +99,27 @@ class LocalBackupManager(
                 )
             }
             put("messages", msgArr)
+
+            val studyArr = JSONArray()
+            studyItems.forEach { s ->
+                studyArr.put(
+                    JSONObject().apply {
+                        put("id", s.id)
+                        put("chatId", s.chatId)
+                        put("itemType", s.itemType)
+                        put("title", s.title)
+                        put("details", s.details)
+                        put("scheduleText", s.scheduleText)
+                        put("examDateEpochMs", s.examDateEpochMs)
+                        put("createdBy", s.createdBy)
+                        put("createdByName", s.createdByName)
+                        put("participantUidsJson", s.participantUidsJson)
+                        put("createdAtEpochMs", s.createdAtEpochMs)
+                        put("updatedAtEpochMs", s.updatedAtEpochMs)
+                    }
+                )
+            }
+            put("studyItems", studyArr)
         }
         root.toString(2)
     }
@@ -162,6 +192,9 @@ class LocalBackupManager(
                     lastMessageType = c.optString("lastMessageType", "text"),
                     lastMessageAtEpochMs = c.optLong("lastMessageAtEpochMs", 0L),
                     disappearingHours = c.optLong("disappearingHours", 0L),
+                    isStudyGroup = c.optBoolean("isStudyGroup", false),
+                    studyLockToAdmin = c.optBoolean("studyLockToAdmin", false),
+                    inviteCode = c.optString("inviteCode", ""),
                     pinnedByUidsJson = c.optString("pinnedByUidsJson", "[]"),
                     mutedByUidsJson = c.optString("mutedByUidsJson", "[]"),
                     archivedByUidsJson = c.optString("archivedByUidsJson", "[]"),
@@ -179,6 +212,12 @@ class LocalBackupManager(
             fun optNullable(key: String): String? =
                 if (m.isNull(key)) null else m.optString(key).takeIf { it.isNotEmpty() }
 
+            val correctIdx = if (m.isNull("correctOptionIndex") || !m.has("correctOptionIndex")) {
+                null
+            } else {
+                m.optLong("correctOptionIndex")
+            }
+
             messages.add(
                 LocalMessageEntity(
                     id = m.getString("id"),
@@ -191,6 +230,10 @@ class LocalBackupManager(
                     pollQuestion = optNullable("pollQuestion"),
                     pollOptionsJson = optNullable("pollOptionsJson"),
                     pollVotesJson = optNullable("pollVotesJson"),
+                    correctOptionIndex = correctIdx,
+                    quizExplanation = optNullable("quizExplanation"),
+                    flashcardFront = optNullable("flashcardFront"),
+                    flashcardBack = optNullable("flashcardBack"),
                     replyToMessageId = optNullable("replyToMessageId"),
                     replyToSenderName = optNullable("replyToSenderName"),
                     replyToPreview = optNullable("replyToPreview"),
@@ -207,8 +250,31 @@ class LocalBackupManager(
             )
         }
 
+        val studyArr = root.optJSONArray("studyItems") ?: JSONArray()
+        val studyItems = mutableListOf<LocalStudyItemEntity>()
+        for (i in 0 until studyArr.length()) {
+            val s = studyArr.getJSONObject(i)
+            studyItems.add(
+                LocalStudyItemEntity(
+                    id = s.getString("id"),
+                    chatId = s.getString("chatId"),
+                    itemType = s.optString("itemType", "note"),
+                    title = s.optString("title", ""),
+                    details = s.optString("details", ""),
+                    scheduleText = s.optString("scheduleText", ""),
+                    examDateEpochMs = s.optLong("examDateEpochMs", 0L),
+                    createdBy = s.optString("createdBy", ""),
+                    createdByName = s.optString("createdByName", "Student"),
+                    participantUidsJson = s.optString("participantUidsJson", "[]"),
+                    createdAtEpochMs = s.optLong("createdAtEpochMs", 0L),
+                    updatedAtEpochMs = s.optLong("updatedAtEpochMs", 0L)
+                )
+            )
+        }
+
         if (chats.isNotEmpty()) dao.upsertChats(chats)
         if (messages.isNotEmpty()) dao.upsertMessages(messages)
+        if (studyItems.isNotEmpty()) dao.upsertStudyItems(studyItems)
 
         return BackupRestoreSummary(
             chatCount = chats.size,

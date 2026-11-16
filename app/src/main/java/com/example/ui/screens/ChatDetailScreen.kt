@@ -53,12 +53,15 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Poll
+import androidx.compose.material.icons.filled.Quiz
 import androidx.compose.material.icons.filled.Report
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.Style
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -105,13 +108,18 @@ import com.example.data.model.AlapConstants
 import com.example.data.model.AppConfig
 import com.example.data.model.Chat
 import com.example.data.model.ChatMessage
+import com.example.data.model.StudyItem
 import com.example.data.model.UiMessage
 import com.example.data.model.UiState
 import com.example.data.model.UserProfile
 import com.example.ui.components.AlapAvatar
 import com.example.ui.components.AlapDateFormatter
+import com.example.ui.components.FlashcardMessageContent
 import com.example.ui.components.MessageStatusTick
 import com.example.ui.components.OfflineAndMaintenanceStrip
+import com.example.ui.components.QuizMessageContent
+import com.example.ui.components.StudentBadge
+import com.example.ui.components.TeacherBadge
 import com.example.ui.components.VerifiedBadge
 import com.example.ui.theme.LocalAlapColors
 import kotlin.math.roundToInt
@@ -130,13 +138,23 @@ fun ChatDetailScreen(
     isOnline: Boolean,
     hideReadReceipts: Boolean,
     blockedUids: List<String>,
+    studyItems: List<StudyItem> = emptyList(),
+    studyFocusMinutesTotal: Int = 0,
+    studySessionsCompleted: Int = 0,
     errorBanner: String?,
     onBack: () -> Unit,
     onDraftChanged: (String) -> Unit,
     onSendText: (replyTo: ChatMessage?) -> Unit,
     onSendSticker: (stickerId: String, stickerLabel: String, replyTo: ChatMessage?) -> Unit,
     onSendPoll: (question: String, options: List<String>) -> Unit,
+    onSendQuiz: (question: String, options: List<String>, correctIdx: Int, explanation: String) -> Unit = { _, _, _, _ -> },
+    onSendFlashcard: (front: String, back: String) -> Unit = { _, _ -> },
     onVotePoll: (ChatMessage, Int) -> Unit,
+    onAddStudyItem: (itemType: String, title: String, details: String, scheduleText: String, examDateEpochMs: Long) -> Unit = { _, _, _, _, _ -> },
+    onDeleteStudyItem: (String) -> Unit = {},
+    onEnableStudyInvite: () -> Unit = {},
+    onCompleteStudySession: (Int) -> Unit = {},
+    onShareStudySession: (Int) -> Unit = {},
     onSetDisappearingHours: (Long) -> Unit,
     onToggleBlockUser: (String) -> Unit,
     onReportUser: (targetUid: String, targetName: String, reason: String) -> Unit,
@@ -148,6 +166,7 @@ fun ChatDetailScreen(
     onMarkRead: (List<ChatMessage>, Boolean) -> Unit,
     onUpdateGroup: (String, String) -> Unit,
     onAddGroupMember: (String) -> Unit,
+    onToggleStudyLock: () -> Unit = {},
     onLeaveGroup: () -> Unit,
     onClearError: () -> Unit
 ) {
@@ -166,11 +185,17 @@ fun ChatDetailScreen(
     var showGroupInfoDialog by remember { mutableStateOf(false) }
     var showContactInfoDialog by remember { mutableStateOf(false) }
     var showPollDialog by remember { mutableStateOf(false) }
+    var showQuizDialog by remember { mutableStateOf(false) }
+    var showFlashcardDialog by remember { mutableStateOf(false) }
+    var showStudyBoard by remember { mutableStateOf(false) }
+    var showPomodoroDialog by remember { mutableStateOf(false) }
     var showTimerDialog by remember { mutableStateOf(false) }
     var showReportDialog by remember { mutableStateOf(false) }
     var infoMessageDialogTarget by remember { mutableStateOf<ChatMessage?>(null) }
 
     val isGroup = chat?.chatType == "group"
+    val isGroupAdmin = chat != null && currentUserId in chat.adminUids
+    val canPostStudyTools = !isGroup || chat?.studyLockToAdmin != true || isGroupAdmin
     val otherUid = chat?.otherParticipantUid(currentUserId)
     val otherUser = otherUid?.let { usersMap[it] }
     val isOtherBlocked = otherUid != null && otherUid in blockedUids
@@ -254,11 +279,23 @@ fun ChatDetailScreen(
                                         text = headerTitle,
                                         style = MaterialTheme.typography.titleMedium,
                                         maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
                                     )
                                     if (!isGroup && otherUser?.isVerified == true) {
                                         Spacer(modifier = Modifier.width(4.dp))
                                         VerifiedBadge()
+                                    }
+                                    if (!isGroup && otherUser?.isTeacher == true) {
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        TeacherBadge()
+                                    }
+                                    if (!isGroup && otherUser?.isStudent == true) {
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        StudentBadge()
+                                    } else if (isGroup && chat?.isStudyGroup == true) {
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        StudentBadge(label = "STUDY")
                                     }
                                 }
                                 Text(
@@ -274,6 +311,18 @@ fun ChatDetailScreen(
                         }
                     },
                     actions = {
+                        IconButton(
+                            onClick = { showStudyBoard = true },
+                            modifier = Modifier.testTag("topbar_study_board_button")
+                        ) {
+                            Icon(Icons.Filled.MenuBook, contentDescription = "Study Board", tint = MaterialTheme.colorScheme.primary)
+                        }
+                        IconButton(
+                            onClick = { showPomodoroDialog = true },
+                            modifier = Modifier.testTag("topbar_pomodoro_button")
+                        ) {
+                            Icon(Icons.Filled.Timer, contentDescription = "Pomodoro Study Timer")
+                        }
                         IconButton(onClick = { showSearch = !showSearch }) {
                             Icon(Icons.Filled.Search, contentDescription = "Search in chat")
                         }
@@ -308,6 +357,40 @@ fun ChatDetailScreen(
                                         }
                                     )
                                 }
+                                DropdownMenuItem(
+                                    text = { Text(if (canPostStudyTools) "Create MCQ Quiz" else "Create MCQ Quiz (Admin only)") },
+                                    leadingIcon = { Icon(Icons.Filled.Quiz, contentDescription = null) },
+                                    enabled = canPostStudyTools,
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        showQuizDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(if (canPostStudyTools) "Create Flashcard" else "Create Flashcard (Admin only)") },
+                                    leadingIcon = { Icon(Icons.Filled.Style, contentDescription = null) },
+                                    enabled = canPostStudyTools,
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        showFlashcardDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Study Board (Notes & Exams)") },
+                                    leadingIcon = { Icon(Icons.Filled.MenuBook, contentDescription = null) },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        showStudyBoard = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Pomodoro Study Timer") },
+                                    leadingIcon = { Icon(Icons.Filled.Timer, contentDescription = null) },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        showPomodoroDialog = true
+                                    }
+                                )
                                 DropdownMenuItem(
                                     text = { Text("Create Poll") },
                                     leadingIcon = { Icon(Icons.Filled.Poll, contentDescription = null) },
@@ -449,7 +532,11 @@ fun ChatDetailScreen(
                             if (q.isBlank()) nonExpiredMessages
                             else nonExpiredMessages.filter {
                                 it.message.text.lowercase().contains(q) ||
-                                    it.message.pollQuestion.orEmpty().lowercase().contains(q)
+                                    it.message.pollQuestion.orEmpty().lowercase().contains(q) ||
+                                    it.message.flashcardFront.orEmpty().lowercase().contains(q) ||
+                                    it.message.flashcardBack.orEmpty().lowercase().contains(q) ||
+                                    it.message.quizExplanation.orEmpty().lowercase().contains(q) ||
+                                    it.message.pollOptions.orEmpty().any { opt -> opt.lowercase().contains(q) }
                             }
                         }
 
@@ -616,7 +703,7 @@ fun ChatDetailScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = "Sending paused by Admin (Read-only mode)",
+                                text = "Sending paused (Read-only mode)",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(14.dp)
@@ -850,6 +937,49 @@ fun ChatDetailScreen(
         )
     }
 
+    if (showQuizDialog) {
+        CreateQuizDialog(
+            onDismiss = { showQuizDialog = false },
+            onCreateQuiz = { q, opts, correctIdx, explanation ->
+                onSendQuiz(q, opts, correctIdx, explanation)
+                showQuizDialog = false
+            }
+        )
+    }
+
+    if (showFlashcardDialog) {
+        CreateFlashcardDialog(
+            onDismiss = { showFlashcardDialog = false },
+            onCreateFlashcard = { front, back ->
+                onSendFlashcard(front, back)
+                showFlashcardDialog = false
+            }
+        )
+    }
+
+    if (showStudyBoard) {
+        StudyBoardSheet(
+            chatTitle = headerTitle,
+            currentUserId = currentUserId,
+            isGroupAdmin = isGroupAdmin,
+            canAddStudyItems = canPostStudyTools,
+            studyItems = studyItems,
+            onAddItem = onAddStudyItem,
+            onDeleteItem = onDeleteStudyItem,
+            onDismiss = { showStudyBoard = false }
+        )
+    }
+
+    if (showPomodoroDialog) {
+        StudyPomodoroDialog(
+            totalFocusMinutes = studyFocusMinutesTotal,
+            completedSessions = studySessionsCompleted,
+            onSessionCompleted = onCompleteStudySession,
+            onShareToChat = onShareStudySession,
+            onDismiss = { showPomodoroDialog = false }
+        )
+    }
+
     if (showTimerDialog && chat != null) {
         DisappearingTimerDialog(
             currentHours = chat.disappearingHours,
@@ -878,6 +1008,8 @@ fun ChatDetailScreen(
             onDismiss = { showGroupInfoDialog = false },
             onUpdateGroup = onUpdateGroup,
             onAddGroupMember = onAddGroupMember,
+            onEnableStudyInvite = onEnableStudyInvite,
+            onToggleStudyLock = onToggleStudyLock,
             onLeaveGroup = onLeaveGroup
         )
     }
@@ -1121,6 +1253,22 @@ private fun MessageBubble(
                                 color = extended.mutedText
                             )
                         }
+                    }
+
+                    msg.messageType == "quiz" && !msg.isDeleted -> {
+                        QuizMessageContent(
+                            msg = msg,
+                            currentUserId = currentUserId,
+                            textColor = textColor,
+                            onSelectOption = onVotePoll
+                        )
+                    }
+
+                    msg.messageType == "flashcard" && !msg.isDeleted -> {
+                        FlashcardMessageContent(
+                            msg = msg,
+                            textColor = textColor
+                        )
                     }
 
                     msg.messageType == "sticker" && !msg.isDeleted -> {

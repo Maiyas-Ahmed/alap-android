@@ -23,8 +23,10 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -128,6 +130,68 @@ fun VerifiedBadge(modifier: Modifier = Modifier) {
 }
 
 @Composable
+fun StudentBadge(
+    modifier: Modifier = Modifier,
+    label: String = "ST"
+) {
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        modifier = modifier.testTag("student_badge")
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Filled.School,
+                contentDescription = "Student badge",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(11.dp)
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
+@Composable
+fun TeacherBadge(
+    modifier: Modifier = Modifier,
+    label: String = "TR"
+) {
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = Color(0xFFFFF3CD),
+        modifier = modifier.testTag("teacher_badge")
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Filled.WorkspacePremium,
+                contentDescription = "Verified Teacher badge",
+                tint = Color(0xFF9A5B00),
+                modifier = Modifier.size(11.dp)
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF9A5B00)
+            )
+        }
+    }
+}
+
+@Composable
 fun MessageStatusTick(
     isPendingSync: Boolean,
     isReadByOther: Boolean,
@@ -191,7 +255,7 @@ fun OfflineAndMaintenanceStrip(
             }
             if (isReadOnlyMode || maintenanceBanner.isNotBlank()) {
                 val text = maintenanceBanner.ifBlank {
-                    "Alap is currently in read-only maintenance mode by Admin."
+                    "Alap is currently in read-only mode for maintenance."
                 }
                 Surface(
                     color = MaterialTheme.colorScheme.primaryContainer,

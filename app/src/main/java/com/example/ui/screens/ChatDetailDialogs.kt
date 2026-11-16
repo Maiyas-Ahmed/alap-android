@@ -17,8 +17,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Report
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -31,6 +33,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -41,12 +44,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.data.model.Chat
 import com.example.data.model.ChatMessage
 import com.example.data.model.UserProfile
 import com.example.ui.components.AlapAvatar
 import com.example.ui.components.AlapDateFormatter
+import com.example.ui.components.StudentBadge
+import com.example.ui.components.TeacherBadge
 import com.example.ui.components.VerifiedBadge
 
 @Composable
@@ -252,7 +261,7 @@ fun ReportUserDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = "Reports are reviewed privately by Alap Admins.",
+                    text = "Reports are reviewed privately by Alap moderation.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -298,8 +307,11 @@ fun GroupInfoDialog(
     onDismiss: () -> Unit,
     onUpdateGroup: (String, String) -> Unit,
     onAddGroupMember: (String) -> Unit,
+    onEnableStudyInvite: () -> Unit = {},
+    onToggleStudyLock: () -> Unit = {},
     onLeaveGroup: () -> Unit
 ) {
+    val clipboard = LocalClipboardManager.current
     val isGroupAdmin = currentUserId in chat.adminUids
     var newTitle by remember(chat.id) { mutableStateOf(chat.title) }
     var newDesc by remember(chat.id) { mutableStateOf(chat.description) }
@@ -308,12 +320,60 @@ fun GroupInfoDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Color.White,
-        title = { Text("Group Info") },
+        title = { Text(if (chat.isStudyGroup) "Study Group Info" else "Group Info") },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                if (chat.inviteCode.isNotBlank()) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "CLASS INVITE CODE",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = chat.inviteCode,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            OutlinedButton(
+                                onClick = { clipboard.setText(AnnotatedString(chat.inviteCode)) },
+                                modifier = Modifier.testTag("copy_study_code_button")
+                            ) {
+                                Icon(Icons.Filled.ContentCopy, contentDescription = "Copy Class Code", modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Copy")
+                            }
+                        }
+                    }
+                } else if (isGroupAdmin) {
+                    OutlinedButton(
+                        onClick = onEnableStudyInvite,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("generate_study_code_button")
+                    ) {
+                        Icon(Icons.Filled.School, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Generate 6-Char Class Code")
+                    }
+                }
+
                 if (isGroupAdmin) {
                     OutlinedTextField(
                         value = newTitle,
@@ -332,10 +392,46 @@ fun GroupInfoDialog(
                         onClick = { onUpdateGroup(newTitle, newDesc) },
                         modifier = Modifier.align(Alignment.End)
                     ) { Text("Update Info") }
+
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Teacher / Admin Only Study Posts",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = "Only group admins can add Study Board items, quizzes, or flashcards.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = chat.studyLockToAdmin,
+                                onCheckedChange = { onToggleStudyLock() },
+                                modifier = Modifier.testTag("group_study_lock_switch")
+                            )
+                        }
+                    }
                 } else {
                     Text(chat.title, style = MaterialTheme.typography.titleMedium)
                     if (chat.description.isNotBlank()) {
                         Text(chat.description, style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (chat.studyLockToAdmin) {
+                        Text(
+                            text = "Study posts restricted to Group Admins / Teachers",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
                     }
                 }
 
@@ -344,9 +440,20 @@ fun GroupInfoDialog(
                     style = MaterialTheme.typography.labelMedium
                 )
                 chat.participantUids.forEach { uid ->
-                    val memberName = if (uid == currentUserId) currentUserName else (usersMap[uid]?.displayName ?: uid.take(8))
+                    val memberProfile = usersMap[uid]
+                    val memberName = if (uid == currentUserId) currentUserName else (memberProfile?.displayName ?: uid.take(8))
                     val roleLabel = if (uid in chat.adminUids) " • Admin" else ""
-                    Text("$memberName$roleLabel", style = MaterialTheme.typography.bodySmall)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text("$memberName$roleLabel", style = MaterialTheme.typography.bodySmall)
+                        if (memberProfile?.isTeacher == true) {
+                            TeacherBadge()
+                        } else if (memberProfile?.isStudent == true) {
+                            StudentBadge()
+                        }
+                    }
                 }
 
                 if (isGroupAdmin && nonMembers.isNotEmpty()) {
@@ -408,6 +515,14 @@ fun ContactInfoDialog(
                             Spacer(modifier = Modifier.width(4.dp))
                             VerifiedBadge()
                         }
+                        if (otherUser.isTeacher) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            TeacherBadge()
+                        }
+                        if (otherUser.isStudent) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            StudentBadge()
+                        }
                     }
                     Text(
                         text = when {
@@ -465,6 +580,33 @@ fun ContactInfoDialog(
                         style = MaterialTheme.typography.bodyMedium,
                         color = if (otherUser.hideAbout) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
                     )
+                }
+                if (otherUser.isTeacher && otherUser.teacherSubject.isNotBlank()) {
+                    HorizontalDivider()
+                    Column {
+                        Text("Teacher Specialty", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            text = otherUser.teacherSubject,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color(0xFF9A5B00),
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+                if (otherUser.isStudent && (otherUser.studentClass.isNotBlank() || otherUser.studentSubject.isNotBlank())) {
+                    HorizontalDivider()
+                    Column {
+                        Text("Student Details", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        val infoText = listOfNotNull(
+                            otherUser.studentClass.takeIf { it.isNotBlank() },
+                            otherUser.studentSubject.takeIf { it.isNotBlank() }
+                        ).joinToString(" • ")
+                        Text(
+                            text = infoText,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
                 HorizontalDivider()
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

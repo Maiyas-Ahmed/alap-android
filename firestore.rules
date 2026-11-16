@@ -70,6 +70,12 @@ service cloud.firestore {
              data.isOnline is bool &&
              data.isVerified is bool &&
              data.isSuspended is bool &&
+             (!('isStudent' in data) || data.isStudent is bool) &&
+             (!('studentClass' in data) || (data.studentClass is string && data.studentClass.size() <= 40)) &&
+             (!('studentSubject' in data) || (data.studentSubject is string && data.studentSubject.size() <= 80)) &&
+             (!('accountType' in data) || data.accountType in ['student', 'personal', 'teacher']) &&
+             (!('isTeacher' in data) || data.isTeacher is bool) &&
+             (!('teacherSubject' in data) || (data.teacherSubject is string && data.teacherSubject.size() <= 80)) &&
              data.lastSeenAt is timestamp && data.lastSeenAt <= request.time &&
              data.createdAt is timestamp && data.createdAt <= request.time &&
              data.updatedAt is timestamp && data.updatedAt <= request.time;
@@ -80,6 +86,7 @@ service cloud.firestore {
              data.email is string && data.email.size() >= 3 && data.email.size() <= 160 &&
              data.phoneNumber is string && data.phoneNumber.size() <= 24 &&
              data.alapId is string && data.alapId.size() <= 32 &&
+             (!('birthYear' in data) || (data.birthYear is int && data.birthYear >= 0 && data.birthYear <= 2030)) &&
              data.createdAt is timestamp && data.createdAt <= request.time &&
              data.updatedAt is timestamp && data.updatedAt <= request.time;
     }
@@ -155,9 +162,12 @@ service cloud.firestore {
              data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128 &&
              data.lastMessageText is string && data.lastMessageText.size() <= 300 &&
              data.lastMessageSenderId is string && data.lastMessageSenderId.size() <= 128 &&
-             data.lastMessageType in ['text', 'sticker', 'poll', 'system'] &&
+             data.lastMessageType in ['text', 'sticker', 'poll', 'quiz', 'flashcard', 'system'] &&
              data.lastMessageAt is timestamp && data.lastMessageAt <= request.time &&
              (!('disappearingHours' in data) || (data.disappearingHours is int && data.disappearingHours in [0, 24, 168])) &&
+             (!('isStudyGroup' in data) || data.isStudyGroup is bool) &&
+             (!('studyLockToAdmin' in data) || data.studyLockToAdmin is bool) &&
+             (!('inviteCode' in data) || (data.inviteCode is string && data.inviteCode.size() <= 16)) &&
              isStringList(data.typingUids, 0, 20) &&
              isStringList(data.pinnedByUids, 0, 50) &&
              isStringList(data.mutedByUids, 0, 50) &&
@@ -172,11 +182,15 @@ service cloud.firestore {
              data.senderId is string && data.senderId.size() >= 1 && data.senderId.size() <= 128 &&
              data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 60 &&
              data.text is string && data.text.size() <= 4000 &&
-             data.messageType in ['text', 'sticker', 'poll', 'system'] &&
+             data.messageType in ['text', 'sticker', 'poll', 'quiz', 'flashcard', 'system'] &&
              (!('stickerId' in data) || data.stickerId == null || (data.stickerId is string && data.stickerId.size() <= 40)) &&
              (!('pollQuestion' in data) || data.pollQuestion == null || (data.pollQuestion is string && data.pollQuestion.size() <= 200)) &&
              (!('pollOptions' in data) || data.pollOptions == null || isStringList(data.pollOptions, 0, 6)) &&
              (!('pollVotes' in data) || data.pollVotes == null || data.pollVotes is map) &&
+             (!('correctOptionIndex' in data) || data.correctOptionIndex == null || (data.correctOptionIndex is int && data.correctOptionIndex >= 0 && data.correctOptionIndex <= 5)) &&
+             (!('quizExplanation' in data) || data.quizExplanation == null || (data.quizExplanation is string && data.quizExplanation.size() <= 300)) &&
+             (!('flashcardFront' in data) || data.flashcardFront == null || (data.flashcardFront is string && data.flashcardFront.size() <= 200)) &&
+             (!('flashcardBack' in data) || data.flashcardBack == null || (data.flashcardBack is string && data.flashcardBack.size() <= 500)) &&
              (!('replyToMessageId' in data) || data.replyToMessageId == null || (data.replyToMessageId is string && data.replyToMessageId.size() <= 128)) &&
              (!('replyToSenderName' in data) || data.replyToSenderName == null || (data.replyToSenderName is string && data.replyToSenderName.size() <= 60)) &&
              (!('replyToPreview' in data) || data.replyToPreview == null || (data.replyToPreview is string && data.replyToPreview.size() <= 160)) &&
@@ -187,6 +201,31 @@ service cloud.firestore {
              isStringList(data.readByUids, 0, 50) &&
              isStringList(data.starredByUids, 0, 50) &&
              data.reactions is map &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidStudyInvite(data) {
+      return data.inviteCode is string && data.inviteCode.size() >= 6 && data.inviteCode.size() <= 16 &&
+             data.chatId is string && data.chatId.size() >= 1 && data.chatId.size() <= 128 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 60 &&
+             data.description is string && data.description.size() <= 200 &&
+             data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128 &&
+             data.isActive is bool &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidStudyItem(data) {
+      return data.chatId is string && data.chatId.size() >= 1 && data.chatId.size() <= 128 &&
+             data.itemType in ['note', 'routine', 'exam'] &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 100 &&
+             data.details is string && data.details.size() <= 400 &&
+             data.scheduleText is string && data.scheduleText.size() <= 80 &&
+             data.examDateEpochMs is int && data.examDateEpochMs >= 0 &&
+             data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128 &&
+             data.createdByName is string && data.createdByName.size() >= 1 && data.createdByName.size() <= 60 &&
+             isStringList(data.participantUids, 2, 50) &&
              data.createdAt is timestamp && data.createdAt <= request.time &&
              data.updatedAt is timestamp && data.updatedAt <= request.time;
     }
@@ -237,6 +276,8 @@ service cloud.firestore {
                        incoming().userId == request.auth.uid &&
                        incoming().isVerified == false &&
                        incoming().isSuspended == false &&
+                       (!('isTeacher' in incoming()) || incoming().isTeacher == false) &&
+                       (!('accountType' in incoming()) || incoming().accountType in ['student', 'personal']) &&
                        incoming().keys().hasAll([
                          'userId', 'displayName', 'handle', 'about', 'avatarId',
                          'publicPhoneNumber', 'publicUserId',
@@ -252,6 +293,8 @@ service cloud.firestore {
                          'hideReadReceipts', 'blockedUids',
                          'isProfileCompleted',
                          'isDiscoverable', 'isOnline', 'isVerified', 'isSuspended',
+                         'isStudent', 'studentClass', 'studentSubject',
+                         'accountType', 'isTeacher', 'teacherSubject',
                          'lastSeenAt', 'createdAt', 'updatedAt'
                        ]) &&
                        isValidUserProfile(incoming());
@@ -267,13 +310,19 @@ service cloud.firestore {
                            request.auth.uid == userId &&
                            incoming().isVerified == existing().isVerified &&
                            incoming().isSuspended == existing().isSuspended &&
+                           (!('isTeacher' in incoming()) || incoming().isTeacher == (('isTeacher' in existing()) ? existing().isTeacher : false)) &&
+                           (!('accountType' in incoming()) || incoming().accountType in ['student', 'personal'] || (('accountType' in existing()) && incoming().accountType == existing().accountType)) &&
+                           (!('accountType' in existing()) || existing().accountType != 'student' || existing().isProfileCompleted != true || (incoming().accountType == 'student' && incoming().isStudent == true)) &&
                            incoming().diff(existing()).affectedKeys().hasOnly([
                              'displayName', 'handle', 'about', 'avatarId',
                              'publicPhoneNumber', 'publicUserId',
                              'hidePhoneNumber', 'hideUserId', 'hideOnlineStatus', 'hideAbout',
                              'hideReadReceipts', 'blockedUids',
                              'isProfileCompleted',
-                             'isDiscoverable', 'isOnline', 'lastSeenAt', 'updatedAt'
+                             'isDiscoverable', 'isOnline',
+                             'isStudent', 'studentClass', 'studentSubject',
+                             'accountType', 'teacherSubject',
+                             'lastSeenAt', 'updatedAt'
                            ])
                          )
                        );
@@ -294,7 +343,7 @@ service cloud.firestore {
                            (
                              docId == 'info' &&
                              incoming().keys().hasAll(['userId', 'email', 'phoneNumber', 'alapId', 'createdAt', 'updatedAt']) &&
-                             incoming().keys().hasOnly(['userId', 'email', 'phoneNumber', 'alapId', 'createdAt', 'updatedAt']) &&
+                             incoming().keys().hasOnly(['userId', 'email', 'phoneNumber', 'alapId', 'birthYear', 'createdAt', 'updatedAt']) &&
                              isValidUserPrivateInfo(incoming())
                            ) ||
                            (
@@ -314,7 +363,7 @@ service cloud.firestore {
                              docId == 'info' &&
                              (request.auth.uid == userId || isAdmin()) &&
                              isValidUserPrivateInfo(incoming()) &&
-                             incoming().diff(existing()).affectedKeys().hasOnly(['email', 'phoneNumber', 'alapId', 'updatedAt'])
+                             incoming().diff(existing()).affectedKeys().hasOnly(['email', 'phoneNumber', 'alapId', 'birthYear', 'updatedAt'])
                            ) ||
                            (
                              docId == 'verification' &&
@@ -420,7 +469,8 @@ service cloud.firestore {
                          'chatType', 'title', 'description', 'avatarId',
                          'participantUids', 'adminUids', 'createdBy',
                          'lastMessageText', 'lastMessageSenderId', 'lastMessageType', 'lastMessageAt',
-                         'disappearingHours', 'typingUids', 'pinnedByUids', 'mutedByUids', 'archivedByUids',
+                         'disappearingHours', 'isStudyGroup', 'studyLockToAdmin', 'inviteCode',
+                         'typingUids', 'pinnedByUids', 'mutedByUids', 'archivedByUids',
                          'unreadCounts', 'createdAt', 'updatedAt'
                        ]);
 
@@ -445,12 +495,12 @@ service cloud.firestore {
                                  'disappearingHours', 'unreadCounts', 'typingUids', 'pinnedByUids', 'mutedByUids', 'archivedByUids', 'updatedAt'
                                ])
                              ) ||
-                             // Action: Group admin updates group metadata or membership
+                             // Action: Group admin updates group metadata, study invite, study lock, or membership
                              (
                                existing().chatType == 'group' &&
                                request.auth.uid in existing().adminUids &&
                                incoming().diff(existing()).affectedKeys().hasOnly([
-                                 'title', 'description', 'avatarId', 'participantUids', 'adminUids', 'updatedAt'
+                                 'title', 'description', 'avatarId', 'participantUids', 'adminUids', 'isStudyGroup', 'studyLockToAdmin', 'inviteCode', 'updatedAt'
                                ])
                              ) ||
                              // Action: Member leaves group
@@ -463,6 +513,23 @@ service cloud.firestore {
                                ])
                              )
                            )
+                         ) ||
+                         // Action: User joins a Study Group via active 6-char invite code (zero-stranger join)
+                         (
+                           existing().chatType == 'group' &&
+                           'inviteCode' in existing() &&
+                           existing().inviteCode.size() >= 6 &&
+                           !(request.auth.uid in existing().participantUids) &&
+                           request.auth.uid in incoming().participantUids &&
+                           incoming().participantUids.size() == existing().participantUids.size() + 1 &&
+                           incoming().participantUids.hasAll(existing().participantUids) &&
+                           incoming().adminUids == existing().adminUids &&
+                           exists(/databases/$(database)/documents/study_invites/$(existing().inviteCode)) &&
+                           get(/databases/$(database)/documents/study_invites/$(existing().inviteCode)).data.chatId == chatId &&
+                           get(/databases/$(database)/documents/study_invites/$(existing().inviteCode)).data.isActive == true &&
+                           incoming().diff(existing()).affectedKeys().hasOnly([
+                             'participantUids', 'updatedAt'
+                           ])
                          )
                        );
 
@@ -493,6 +560,7 @@ service cloud.firestore {
                          incoming().keys().hasOnly([
                            'chatId', 'senderId', 'senderName', 'text', 'messageType',
                            'stickerId', 'pollQuestion', 'pollOptions', 'pollVotes',
+                           'correctOptionIndex', 'quizExplanation', 'flashcardFront', 'flashcardBack',
                            'replyToMessageId', 'replyToSenderName', 'replyToPreview',
                            'isForwarded', 'isEdited', 'isDeleted',
                            'participantUids', 'readByUids', 'starredByUids', 'reactions',
@@ -500,7 +568,13 @@ service cloud.firestore {
                          ]) &&
                          exists(/databases/$(database)/documents/chats/$(chatId)) &&
                          request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participantUids &&
-                         incoming().participantUids == get(/databases/$(database)/documents/chats/$(chatId)).data.participantUids;
+                         incoming().participantUids == get(/databases/$(database)/documents/chats/$(chatId)).data.participantUids &&
+                         (
+                           !(incoming().messageType in ['quiz', 'flashcard']) ||
+                           !('studyLockToAdmin' in get(/databases/$(database)/documents/chats/$(chatId)).data) ||
+                           get(/databases/$(database)/documents/chats/$(chatId)).data.studyLockToAdmin != true ||
+                           request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.adminUids
+                         );
 
         allow update: if isSignedIn() &&
                          isNotSuspended() &&
@@ -520,7 +594,7 @@ service cloud.firestore {
                                  existing().senderId == request.auth.uid &&
                                  incoming().diff(existing()).affectedKeys().hasOnly(['text', 'isEdited', 'isDeleted', 'updatedAt'])
                                ) ||
-                               // Action: Participant marks read / stars / reacts / votes in poll
+                               // Action: Participant marks read / stars / reacts / votes in poll or quiz
                                (
                                  incoming().diff(existing()).affectedKeys().hasOnly(['readByUids', 'starredByUids', 'reactions', 'pollVotes', 'updatedAt'])
                                )
@@ -537,6 +611,153 @@ service cloud.firestore {
                            (request.auth.uid in existing().participantUids && existing().readByUids.hasAll(existing().participantUids))
                          );
       }
+
+      // 5c. Shared Group Study Board Subcollection (Notes, Class Routine, Exam Countdown)
+      match /study_items/{itemId} {
+        allow get: if isSignedIn() &&
+                      isValidId(chatId) &&
+                      isValidId(itemId) &&
+                      (
+                        resource == null ||
+                        request.auth.uid in existing().participantUids ||
+                        (
+                          exists(/databases/$(database)/documents/chats/$(chatId)) &&
+                          request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participantUids
+                        ) ||
+                        isAdmin()
+                      );
+
+        allow list: if isSignedIn() &&
+                       isValidId(chatId) &&
+                       (
+                         request.auth.uid in existing().participantUids ||
+                         (
+                           exists(/databases/$(database)/documents/chats/$(chatId)) &&
+                           request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participantUids
+                         ) ||
+                         isAdmin()
+                       );
+
+        allow create: if isSignedIn() &&
+                         isNotSuspended() &&
+                         isValidId(chatId) &&
+                         isValidId(itemId) &&
+                         isValidStudyItem(incoming()) &&
+                         incoming().chatId == chatId &&
+                         incoming().createdBy == request.auth.uid &&
+                         incoming().keys().hasAll([
+                           'chatId', 'itemType', 'title', 'details', 'scheduleText',
+                           'examDateEpochMs', 'createdBy', 'createdByName', 'participantUids',
+                           'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'chatId', 'itemType', 'title', 'details', 'scheduleText',
+                           'examDateEpochMs', 'createdBy', 'createdByName', 'participantUids',
+                           'createdAt', 'updatedAt'
+                         ]) &&
+                         exists(/databases/$(database)/documents/chats/$(chatId)) &&
+                         request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participantUids &&
+                         incoming().participantUids == get(/databases/$(database)/documents/chats/$(chatId)).data.participantUids &&
+                         (
+                           !('studyLockToAdmin' in get(/databases/$(database)/documents/chats/$(chatId)).data) ||
+                           get(/databases/$(database)/documents/chats/$(chatId)).data.studyLockToAdmin != true ||
+                           request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.adminUids
+                         );
+
+        allow update: if isSignedIn() &&
+                         isNotSuspended() &&
+                         isValidId(chatId) &&
+                         isValidId(itemId) &&
+                         isValidStudyItem(incoming()) &&
+                         incoming().chatId == existing().chatId &&
+                         incoming().createdBy == existing().createdBy &&
+                         incoming().createdAt == existing().createdAt &&
+                         (
+                           isAdmin() ||
+                           (
+                             (
+                               request.auth.uid in existing().participantUids ||
+                               (
+                                 exists(/databases/$(database)/documents/chats/$(chatId)) &&
+                                 request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participantUids
+                               )
+                             ) &&
+                             (
+                               existing().createdBy == request.auth.uid ||
+                               (
+                                 exists(/databases/$(database)/documents/chats/$(chatId)) &&
+                                 request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.adminUids
+                               )
+                             ) &&
+                             incoming().diff(existing()).affectedKeys().hasOnly([
+                               'itemType', 'title', 'details', 'scheduleText', 'examDateEpochMs', 'updatedAt'
+                             ])
+                           )
+                         );
+
+        allow delete: if isSignedIn() &&
+                         isValidId(chatId) &&
+                         isValidId(itemId) &&
+                         (
+                           isAdmin() ||
+                           existing().createdBy == request.auth.uid ||
+                           (
+                             exists(/databases/$(database)/documents/chats/$(chatId)) &&
+                             request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.adminUids
+                           )
+                         );
+      }
+    }
+
+    // 5d. Study Group Invite Lookup Index (6-char Class/Batch Codes)
+    match /study_invites/{inviteCode} {
+      allow get: if isSignedIn() && isValidId(inviteCode);
+      allow list: if isSignedIn() && (existing().createdBy == request.auth.uid || isAdmin());
+
+      allow create: if isSignedIn() &&
+                       isNotSuspended() &&
+                       isValidId(inviteCode) &&
+                       incoming().inviteCode == inviteCode &&
+                       incoming().createdBy == request.auth.uid &&
+                       incoming().keys().hasAll([
+                         'inviteCode', 'chatId', 'title', 'description',
+                         'createdBy', 'isActive', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'inviteCode', 'chatId', 'title', 'description',
+                         'createdBy', 'isActive', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidStudyInvite(incoming()) &&
+                       exists(/databases/$(database)/documents/chats/$(incoming().chatId)) &&
+                       request.auth.uid in get(/databases/$(database)/documents/chats/$(incoming().chatId)).data.adminUids;
+
+      allow update: if isSignedIn() &&
+                       isNotSuspended() &&
+                       isValidId(inviteCode) &&
+                       isValidStudyInvite(incoming()) &&
+                       incoming().inviteCode == existing().inviteCode &&
+                       incoming().chatId == existing().chatId &&
+                       incoming().createdBy == existing().createdBy &&
+                       incoming().createdAt == existing().createdAt &&
+                       (
+                         isAdmin() ||
+                         (
+                           (
+                             existing().createdBy == request.auth.uid ||
+                             (
+                               exists(/databases/$(database)/documents/chats/$(existing().chatId)) &&
+                               request.auth.uid in get(/databases/$(database)/documents/chats/$(existing().chatId)).data.adminUids
+                             )
+                           ) &&
+                           incoming().diff(existing()).affectedKeys().hasOnly([
+                             'title', 'description', 'isActive', 'updatedAt'
+                           ])
+                         )
+                       );
+
+      allow delete: if isSignedIn() &&
+                       isValidId(inviteCode) &&
+                       (existing().createdBy == request.auth.uid || isAdmin());
     }
 
     // 6. Status Updates (24h lightweight text updates)

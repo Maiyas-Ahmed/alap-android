@@ -95,8 +95,13 @@ class AlapViewModel(
     val appLockPinHash: StateFlow<String> = prefs.appLockPinHash
         .stateIn(viewModelScope, SharingStarted.Eagerly, "")
 
-    val adminPinHash: StateFlow<String> = prefs.adminPinHash
-        .stateIn(viewModelScope, SharingStarted.Eagerly, "")
+    val studyFocusMinutesTotal: StateFlow<Int> = prefs.studyFocusMinutesTotal
+        .map { it.toInt() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), 0)
+
+    val studySessionsCompleted: StateFlow<Int> = prefs.studySessionsCompleted
+        .map { it.toInt() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), 0)
 
     private val _remoteVersionInfo = MutableStateFlow<RemoteVersionInfo?>(null)
     val remoteVersionInfo: StateFlow<RemoteVersionInfo?> = _remoteVersionInfo.asStateFlow()
@@ -134,12 +139,6 @@ class AlapViewModel(
     val myPrivateInfo: StateFlow<UserPrivateInfo?> = repository.observeMyPrivateInfo(currentUserId)
         .catch { emit(null) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), null)
-
-    val isAdmin: StateFlow<Boolean> = repository.observeIsAdmin(
-        uid = currentUserId,
-        email = currentUserEmail,
-        emailVerified = isEmailVerified
-    ).stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), false)
 
     val appConfig: StateFlow<AppConfig> = repository.observeAppConfig()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), AppConfig())
@@ -310,6 +309,12 @@ class AlapViewModel(
         hideAbout: Boolean,
         hideReadReceipts: Boolean = false,
         isDiscoverable: Boolean,
+        isStudent: Boolean = false,
+        studentClass: String = "",
+        studentSubject: String = "",
+        birthYear: Long = 0L,
+        accountType: String = "personal",
+        teacherSubject: String = "",
         markProfileCompleted: Boolean = true,
         onComplete: () -> Unit = {}
     ) {
@@ -328,6 +333,12 @@ class AlapViewModel(
                 hideAbout = hideAbout,
                 hideReadReceipts = hideReadReceipts,
                 isDiscoverable = isDiscoverable,
+                isStudent = isStudent,
+                studentClass = studentClass,
+                studentSubject = studentSubject,
+                birthYear = birthYear,
+                accountType = accountType,
+                teacherSubject = teacherSubject,
                 markProfileCompleted = markProfileCompleted
             )
             _profileSaving.value = false
@@ -371,6 +382,8 @@ class AlapViewModel(
         title: String,
         description: String,
         memberUids: List<String>,
+        isStudyGroup: Boolean = false,
+        studyLockToAdmin: Boolean = false,
         onChatReady: (String) -> Unit
     ) {
         val current = myProfile.value ?: UserProfile(
@@ -378,9 +391,34 @@ class AlapViewModel(
             displayName = "Alap User"
         )
         viewModelScope.launch {
-            val result = repository.createGroupChat(current, title, description, memberUids)
+            val result = repository.createGroupChat(
+                currentUser = current,
+                title = title,
+                description = description,
+                memberUids = memberUids,
+                isStudyGroup = isStudyGroup,
+                studyLockToAdmin = studyLockToAdmin
+            )
             result.onSuccess { chatId -> onChatReady(chatId) }
                 .onFailure { _actionMessage.value = it.localizedMessage ?: "Unable to create group" }
+        }
+    }
+
+    fun joinGroupByStudyCode(inviteCode: String, onChatReady: (String) -> Unit) {
+        viewModelScope.launch {
+            val result = repository.joinGroupByStudyCode(inviteCode)
+            result.onSuccess { chatId ->
+                _actionMessage.value = "Joined Study Group!"
+                onChatReady(chatId)
+            }.onFailure { e ->
+                _actionMessage.value = e.localizedMessage ?: "Could not join with that Class Code"
+            }
+        }
+    }
+
+    fun recordStudySession(minutes: Int) {
+        viewModelScope.launch {
+            prefs.recordCompletedStudyMinutes(minutes)
         }
     }
 
@@ -516,15 +554,7 @@ class AlapViewModel(
         }
     }
 
-    fun setAdminPin(rawPin: String) {
-        viewModelScope.launch {
-            prefs.setAdminPin(rawPin)
-            _actionMessage.value = if (rawPin.isBlank()) "Admin Lock PIN cleared" else "Admin 2-Layer PIN saved"
-        }
-    }
-
     fun verifyAppPin(rawPin: String): Boolean = prefs.verifyAppPin(rawPin, appLockPinHash.value)
-    fun verifyAdminPin(rawPin: String): Boolean = prefs.verifyAdminPin(rawPin, adminPinHash.value)
 
     fun setOnlineStatus(online: Boolean) {
         val hideOnline = myProfile.value?.hideOnlineStatus == true

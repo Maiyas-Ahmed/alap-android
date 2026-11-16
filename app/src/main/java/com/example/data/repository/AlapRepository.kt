@@ -4,9 +4,6 @@ import android.content.Context
 import com.example.data.firestore.AlapFirestoreProvider
 import com.example.data.firestore.OperationType
 import com.example.data.firestore.handleFirestoreError
-import com.example.data.model.AdminApiKey
-import com.example.data.model.AdminAuditLog
-import com.example.data.model.AdminEntry
 import com.example.data.model.AlapConstants
 import com.example.data.model.Announcement
 import com.example.data.model.AppConfig
@@ -14,6 +11,8 @@ import com.example.data.model.Chat
 import com.example.data.model.ChatMessage
 import com.example.data.model.EmailVerificationOtp
 import com.example.data.model.StatusUpdate
+import com.example.data.model.StudyInvite
+import com.example.data.model.StudyItem
 import com.example.data.model.UiMessage
 import com.example.data.model.UserPrivateInfo
 import com.example.data.model.UserProfile
@@ -35,6 +34,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 import java.security.SecureRandom
+import java.util.Calendar
 
 class AlapRepository(private val db: FirebaseFirestore) {
 
@@ -97,6 +97,12 @@ class AlapRepository(private val db: FirebaseFirestore) {
                 "isOnline" to true,
                 "isVerified" to false,
                 "isSuspended" to false,
+                "isStudent" to false,
+                "studentClass" to "",
+                "studentSubject" to "",
+                "accountType" to "personal",
+                "isTeacher" to false,
+                "teacherSubject" to "",
                 "lastSeenAt" to FieldValue.serverTimestamp(),
                 "createdAt" to FieldValue.serverTimestamp(),
                 "updatedAt" to FieldValue.serverTimestamp()
@@ -118,6 +124,12 @@ class AlapRepository(private val db: FirebaseFirestore) {
             if (!existing.contains("hideReadReceipts")) updates["hideReadReceipts"] = false
             if (!existing.contains("blockedUids")) updates["blockedUids"] = emptyList<String>()
             if (!existing.contains("isProfileCompleted")) updates["isProfileCompleted"] = false
+            if (!existing.contains("isStudent")) updates["isStudent"] = false
+            if (!existing.contains("studentClass")) updates["studentClass"] = ""
+            if (!existing.contains("studentSubject")) updates["studentSubject"] = ""
+            if (!existing.contains("accountType")) updates["accountType"] = "personal"
+            if (!existing.contains("isTeacher")) updates["isTeacher"] = false
+            if (!existing.contains("teacherSubject")) updates["teacherSubject"] = ""
             userRef.update(updates).await()
         }
 
@@ -129,6 +141,7 @@ class AlapRepository(private val db: FirebaseFirestore) {
                 "email" to safeEmail,
                 "phoneNumber" to "",
                 "alapId" to defaultAlapId,
+                "birthYear" to 0L,
                 "createdAt" to FieldValue.serverTimestamp(),
                 "updatedAt" to FieldValue.serverTimestamp()
             )
@@ -143,6 +156,9 @@ class AlapRepository(private val db: FirebaseFirestore) {
             }
             if (!existingPrivate.contains("alapId")) {
                 privateUpdates["alapId"] = defaultAlapId
+            }
+            if (!existingPrivate.contains("birthYear")) {
+                privateUpdates["birthYear"] = 0L
             }
             if (privateUpdates.isNotEmpty()) {
                 privateUpdates["updatedAt"] = FieldValue.serverTimestamp()
@@ -168,6 +184,12 @@ class AlapRepository(private val db: FirebaseFirestore) {
         hideAbout: Boolean,
         hideReadReceipts: Boolean = false,
         isDiscoverable: Boolean,
+        isStudent: Boolean = false,
+        studentClass: String = "",
+        studentSubject: String = "",
+        birthYear: Long = 0L,
+        accountType: String = "personal",
+        teacherSubject: String = "",
         markProfileCompleted: Boolean = true
     ): Result<Unit> = runCatching {
         val uid = requireUserId()
@@ -184,6 +206,30 @@ class AlapRepository(private val db: FirebaseFirestore) {
 
         val userRef = db.collection("users").document(uid)
         val privateRef = userRef.collection("private").document("info")
+        val existingSnap = userRef.get().await()
+        val wasCompleted = existingSnap.getBoolean("isProfileCompleted") == true
+        val existingType = existingSnap.getString("accountType") ?: "personal"
+        val existingIsTeacher = existingSnap.getBoolean("isTeacher") == true
+
+        val currentYear = Calendar.getInstance().get(Calendar.YEAR)
+        val validBirthYear = birthYear.takeIf { it in 1940L..currentYear.toLong() } ?: 0L
+        val isUnder18 = validBirthYear > 0L && (currentYear - validBirthYear) < 18L
+
+        val resolvedAccountType = when {
+            wasCompleted && existingType == "student" -> "student"
+            existingIsTeacher || existingType == "teacher" -> "teacher"
+            isUnder18 -> "student"
+            accountType == "student" -> "student"
+            else -> "personal"
+        }
+        val resolvedIsStudent = if (resolvedAccountType == "student") true else isStudent
+        val safeClass = if (resolvedIsStudent) studentClass.trim().take(40) else ""
+        val safeSubject = if (resolvedIsStudent) studentSubject.trim().take(80) else ""
+        val safeTeacherSubject = if (existingIsTeacher || resolvedAccountType == "teacher") {
+            teacherSubject.trim().take(80)
+        } else {
+            ""
+        }
 
         val batch = db.batch()
         val profileUpdates = mutableMapOf<String, Any>(
@@ -200,20 +246,26 @@ class AlapRepository(private val db: FirebaseFirestore) {
             "hideReadReceipts" to hideReadReceipts,
             "isProfileCompleted" to markProfileCompleted,
             "isDiscoverable" to isDiscoverable,
+            "isStudent" to resolvedIsStudent,
+            "studentClass" to safeClass,
+            "studentSubject" to safeSubject,
+            "accountType" to resolvedAccountType,
+            "teacherSubject" to safeTeacherSubject,
             "updatedAt" to FieldValue.serverTimestamp()
         )
         if (hideOnlineStatus) {
             profileUpdates["isOnline"] = false
         }
         batch.update(userRef, profileUpdates)
-        batch.update(
-            privateRef,
-            mapOf(
-                "phoneNumber" to safePhone,
-                "alapId" to safeAlapId,
-                "updatedAt" to FieldValue.serverTimestamp()
-            )
+        val privateUpdates = mutableMapOf<String, Any>(
+            "phoneNumber" to safePhone,
+            "alapId" to safeAlapId,
+            "updatedAt" to FieldValue.serverTimestamp()
         )
+        if (validBirthYear > 0L) {
+            privateUpdates["birthYear"] = validBirthYear
+        }
+        batch.update(privateRef, privateUpdates)
         batch.commit().await()
         Unit
     }.onFailure { e ->
@@ -400,35 +452,7 @@ class AlapRepository(private val db: FirebaseFirestore) {
         )
     }
 
-    fun observeAllUsersForAdmin(): Flow<List<UserProfile>> = flow {
-        val uid = requireUserId()
-        val path = "users"
-        emitAll(
-            db.collection(path)
-                .snapshots()
-                .map { snapshot ->
-                    snapshot.toObjects(UserProfile::class.java, ServerTimestampBehavior.ESTIMATE)
-                        .sortedByDescending { it.createdAt ?: Timestamp(0, 0) }
-                }
-                .catch { error ->
-                    handleListenerError(error, OperationType.LIST, path, uid)
-                    throw error
-                }
-        )
-    }
-
-    // --- Admin & Global Config & Announcements ---
-
-    fun observeIsAdmin(uid: String, email: String?, emailVerified: Boolean): Flow<Boolean> {
-        val isPrimary = email.equals(AlapConstants.PRIMARY_ADMIN_EMAIL, ignoreCase = true) && emailVerified
-        if (isPrimary) {
-            return flow { emit(true) }
-        }
-        return db.collection("admins").document(uid)
-            .snapshots()
-            .map { it.exists() }
-            .catch { emit(false) }
-    }
+    // --- Global Config, Announcements, Push Tokens & User Reports ---
 
     fun observeAppConfig(): Flow<AppConfig> = flow {
         val uid = requireUserId()
@@ -467,207 +491,6 @@ class AlapRepository(private val db: FirebaseFirestore) {
         )
     }
 
-    fun observeAllAnnouncementsForAdmin(): Flow<List<Announcement>> = flow {
-        val uid = requireUserId()
-        val path = "announcements"
-        emitAll(
-            db.collection(path)
-                .snapshots()
-                .map { snapshot ->
-                    snapshot.toObjects(Announcement::class.java, ServerTimestampBehavior.ESTIMATE)
-                        .sortedByDescending { it.createdAt ?: Timestamp(0, 0) }
-                }
-                .catch { error ->
-                    handleListenerError(error, OperationType.LIST, path, uid)
-                    throw error
-                }
-        )
-    }
-
-    fun observeAllChatsForAdmin(): Flow<List<Chat>> = flow {
-        val uid = requireUserId()
-        val path = "chats"
-        emitAll(
-            db.collection(path)
-                .snapshots()
-                .map { snapshot ->
-                    snapshot.toObjects(Chat::class.java, ServerTimestampBehavior.ESTIMATE)
-                        .sortedByDescending { it.lastMessageAt ?: it.createdAt ?: Timestamp(0, 0) }
-                }
-                .catch { error ->
-                    handleListenerError(error, OperationType.LIST, path, uid)
-                    throw error
-                }
-        )
-    }
-
-    fun observeAdmins(): Flow<List<AdminEntry>> = flow {
-        val uid = requireUserId()
-        val path = "admins"
-        emitAll(
-            db.collection(path)
-                .snapshots()
-                .map { snapshot ->
-                    snapshot.toObjects(AdminEntry::class.java, ServerTimestampBehavior.ESTIMATE)
-                }
-                .catch { error ->
-                    handleListenerError(error, OperationType.LIST, path, uid)
-                    emit(emptyList())
-                }
-        )
-    }
-
-    suspend fun publishAnnouncement(
-        title: String,
-        message: String,
-        versionTag: String,
-        priority: String
-    ): Result<String> = runCatching {
-        val uid = requireUserId()
-        val docRef = db.collection("announcements").document()
-        val safePriority = if (priority in listOf("update", "info", "urgent")) priority else "update"
-        val payload = mapOf(
-            "title" to title.trim().take(100),
-            "message" to message.trim().take(500),
-            "versionTag" to versionTag.trim().take(24),
-            "priority" to safePriority,
-            "isActive" to true,
-            "createdBy" to uid,
-            "createdAt" to FieldValue.serverTimestamp(),
-            "updatedAt" to FieldValue.serverTimestamp()
-        )
-        docRef.set(payload).await()
-        docRef.id
-    }.onFailure { e ->
-        if (e is CancellationException) throw e
-        handleFirestoreError(e, OperationType.CREATE, "announcements")
-    }
-
-    suspend fun toggleAnnouncementActive(announcement: Announcement): Result<Unit> = runCatching {
-        requireUserId()
-        val docRef = db.collection("announcements").document(announcement.id)
-        docRef.update(
-            mapOf(
-                "isActive" to !announcement.isActive,
-                "updatedAt" to FieldValue.serverTimestamp()
-            )
-        ).await()
-        Unit
-    }.onFailure { e ->
-        if (e is CancellationException) throw e
-        handleFirestoreError(e, OperationType.UPDATE, "announcements/${announcement.id}")
-    }
-
-    suspend fun deleteAnnouncement(announcementId: String): Result<Unit> = runCatching {
-        requireUserId()
-        db.collection("announcements").document(announcementId).delete().await()
-        Unit
-    }.onFailure { e ->
-        if (e is CancellationException) throw e
-        handleFirestoreError(e, OperationType.DELETE, "announcements/$announcementId")
-    }
-
-    suspend fun updateAppConfig(config: AppConfig): Result<Unit> = runCatching {
-        val uid = requireUserId()
-        val payload = mapOf(
-            "appTagline" to config.appTagline.trim().take(100),
-            "maintenanceBanner" to config.maintenanceBanner.trim().take(300),
-            "isReadOnlyMode" to config.isReadOnlyMode,
-            "allowStatusUpdates" to config.allowStatusUpdates,
-            "allowGroupCreation" to config.allowGroupCreation,
-            "forceUpdateRequired" to config.forceUpdateRequired,
-            "maxMessageLength" to config.maxMessageLength.coerceIn(50L, 4000L),
-            "minAppVersion" to config.minAppVersion.trim().ifBlank { "1.0" }.take(20),
-            "latestApkUrl" to config.latestApkUrl.trim().take(500),
-            "latestVersionCode" to config.latestVersionCode.coerceIn(1L, 100000L),
-            "updatedBy" to uid,
-            "updatedAt" to FieldValue.serverTimestamp()
-        )
-        db.collection("app_config").document("global").set(payload).await()
-        writeAuditLog("UPDATE_CONFIG", "global", "ReadOnly=${config.isReadOnlyMode}, ForceUpdate=${config.forceUpdateRequired}, MinVer=${config.minAppVersion}")
-        Unit
-    }.onFailure { e ->
-        if (e is CancellationException) throw e
-        handleFirestoreError(e, OperationType.WRITE, "app_config/global")
-    }
-
-    // --- Admin API Keys (Primary Admin Exclusive) ---
-
-    fun observeAdminApiKeys(): Flow<List<AdminApiKey>> = flow {
-        val uid = requireUserId()
-        emitAll(
-            db.collection("admin_api_keys")
-                .snapshots()
-                .map { snapshot ->
-                    snapshot.toObjects(AdminApiKey::class.java, ServerTimestampBehavior.ESTIMATE)
-                        .sortedByDescending { it.createdAt ?: Timestamp(0, 0) }
-                }
-                .catch { error ->
-                    handleListenerError(error, OperationType.LIST, "admin_api_keys", uid)
-                    emit(emptyList())
-                }
-        )
-    }
-
-    suspend fun createAdminApiKey(label: String, scopes: List<String>): Result<AdminApiKey> = runCatching {
-        val uid = requireUserId()
-        val randomBytes = ByteArray(18)
-        SecureRandom().nextBytes(randomBytes)
-        val generatedKey = "alap_live_" + randomBytes.joinToString("") { "%02x".format(it) }
-        val cleanLabel = label.trim().ifBlank { "External Web App" }.take(80)
-        val cleanScopes = scopes.filter { it in AlapConstants.API_KEY_SCOPES }.distinct().take(12)
-        val docRef = db.collection("admin_api_keys").document()
-        val payload = mapOf(
-            "label" to cleanLabel,
-            "apiKey" to generatedKey,
-            "scopes" to cleanScopes,
-            "isActive" to true,
-            "createdBy" to uid,
-            "createdAt" to FieldValue.serverTimestamp(),
-            "updatedAt" to FieldValue.serverTimestamp()
-        )
-        docRef.set(payload).await()
-        writeAuditLog("CREATE_API_KEY", docRef.id, "Created API key '$cleanLabel'")
-        AdminApiKey(
-            id = docRef.id,
-            label = cleanLabel,
-            apiKey = generatedKey,
-            scopes = cleanScopes,
-            isActive = true,
-            createdBy = uid
-        )
-    }.onFailure { e ->
-        if (e is CancellationException) throw e
-        handleFirestoreError(e, OperationType.CREATE, "admin_api_keys")
-    }
-
-    suspend fun toggleAdminApiKeyActive(key: AdminApiKey): Result<Unit> = runCatching {
-        requireUserId()
-        db.collection("admin_api_keys").document(key.id).update(
-            mapOf(
-                "isActive" to !key.isActive,
-                "updatedAt" to FieldValue.serverTimestamp()
-            )
-        ).await()
-        writeAuditLog("TOGGLE_API_KEY", key.id, "${key.label} active=${!key.isActive}")
-        Unit
-    }.onFailure { e ->
-        if (e is CancellationException) throw e
-        handleFirestoreError(e, OperationType.UPDATE, "admin_api_keys/${key.id}")
-    }
-
-    suspend fun deleteAdminApiKey(keyId: String): Result<Unit> = runCatching {
-        requireUserId()
-        db.collection("admin_api_keys").document(keyId).delete().await()
-        writeAuditLog("DELETE_API_KEY", keyId, "Deleted API key")
-        Unit
-    }.onFailure { e ->
-        if (e is CancellationException) throw e
-        handleFirestoreError(e, OperationType.DELETE, "admin_api_keys/$keyId")
-    }
-
-    // --- Device FCM Push Tokens ---
-
     suspend fun saveDevicePushToken(token: String): Result<Unit> = runCatching {
         val uid = requireUserId()
         val cleanToken = token.trim().take(512)
@@ -684,109 +507,6 @@ class AlapRepository(private val db: FirebaseFirestore) {
     }.onFailure { e ->
         if (e is CancellationException) throw e
         handleFirestoreError(e, OperationType.WRITE, "device_tokens/${auth.currentUser?.uid}")
-    }
-
-    suspend fun adminToggleUserVerified(user: UserProfile): Result<Unit> = runCatching {
-        requireUserId()
-        val next = !user.isVerified
-        db.collection("users").document(user.userId).update(
-            mapOf(
-                "isVerified" to next,
-                "updatedAt" to FieldValue.serverTimestamp()
-            )
-        ).await()
-        writeAuditLog("TOGGLE_VERIFIED", user.userId, "${user.displayName} verified=$next")
-        Unit
-    }.onFailure { e ->
-        if (e is CancellationException) throw e
-        handleFirestoreError(e, OperationType.UPDATE, "users/${user.userId}")
-    }
-
-    suspend fun adminToggleUserSuspended(user: UserProfile): Result<Unit> = runCatching {
-        requireUserId()
-        val next = !user.isSuspended
-        db.collection("users").document(user.userId).update(
-            mapOf(
-                "isSuspended" to next,
-                "updatedAt" to FieldValue.serverTimestamp()
-            )
-        ).await()
-        writeAuditLog("TOGGLE_SUSPENDED", user.userId, "${user.displayName} suspended=$next")
-        Unit
-    }.onFailure { e ->
-        if (e is CancellationException) throw e
-        handleFirestoreError(e, OperationType.UPDATE, "users/${user.userId}")
-    }
-
-    suspend fun adminGetUserEmail(userId: String): Result<String?> = runCatching {
-        requireUserId()
-        val doc = db.collection("users").document(userId).collection("private").document("info").get().await()
-        doc.getString("email")
-    }.onFailure { e ->
-        if (e is CancellationException) throw e
-        handleFirestoreError(e, OperationType.GET, "users/$userId/private/info")
-    }
-
-    suspend fun adminGrantSecondaryAdmin(targetUid: String, targetEmail: String): Result<Unit> = runCatching {
-        val uid = requireUserId()
-        val payload = mapOf(
-            "uid" to targetUid,
-            "email" to targetEmail.trim().take(160),
-            "addedBy" to uid,
-            "createdAt" to FieldValue.serverTimestamp()
-        )
-        db.collection("admins").document(targetUid).set(payload).await()
-        writeAuditLog("GRANT_ADMIN", targetUid, "Granted admin to $targetEmail")
-        Unit
-    }.onFailure { e ->
-        if (e is CancellationException) throw e
-        handleFirestoreError(e, OperationType.WRITE, "admins/$targetUid")
-    }
-
-    suspend fun adminRevokeSecondaryAdmin(targetUid: String): Result<Unit> = runCatching {
-        requireUserId()
-        db.collection("admins").document(targetUid).delete().await()
-        writeAuditLog("REVOKE_ADMIN", targetUid, "Revoked delegated admin")
-        Unit
-    }.onFailure { e ->
-        if (e is CancellationException) throw e
-        handleFirestoreError(e, OperationType.DELETE, "admins/$targetUid")
-    }
-
-    suspend fun writeAuditLog(action: String, targetId: String, details: String) {
-        val user = auth.currentUser ?: return
-        try {
-            val docRef = db.collection("audit_logs").document()
-            docRef.set(
-                mapOf(
-                    "adminUid" to user.uid,
-                    "adminEmail" to (user.email ?: "admin@alap").take(160),
-                    "action" to action.take(60),
-                    "targetId" to targetId.take(160),
-                    "details" to details.take(300),
-                    "createdAt" to FieldValue.serverTimestamp()
-                )
-            ).await()
-        } catch (_: Exception) {
-            // Non-fatal if audit log fails on offline cache
-        }
-    }
-
-    fun observeAuditLogs(): Flow<List<AdminAuditLog>> = flow {
-        val uid = requireUserId()
-        emitAll(
-            db.collection("audit_logs")
-                .snapshots()
-                .map { snapshot ->
-                    snapshot.toObjects(AdminAuditLog::class.java, ServerTimestampBehavior.ESTIMATE)
-                        .sortedByDescending { it.createdAt ?: Timestamp(0, 0) }
-                        .take(100)
-                }
-                .catch { error ->
-                    handleListenerError(error, OperationType.LIST, "audit_logs", uid)
-                    emit(emptyList())
-                }
-        )
     }
 
     suspend fun submitUserReport(
@@ -813,56 +533,6 @@ class AlapRepository(private val db: FirebaseFirestore) {
     }.onFailure { e ->
         if (e is CancellationException) throw e
         handleFirestoreError(e, OperationType.CREATE, "reports")
-    }
-
-    fun observeReports(): Flow<List<UserReport>> = flow {
-        val uid = requireUserId()
-        emitAll(
-            db.collection("reports")
-                .snapshots()
-                .map { snapshot ->
-                    snapshot.toObjects(UserReport::class.java, ServerTimestampBehavior.ESTIMATE)
-                        .sortedByDescending { it.createdAt ?: Timestamp(0, 0) }
-                }
-                .catch { error ->
-                    handleListenerError(error, OperationType.LIST, "reports", uid)
-                    emit(emptyList())
-                }
-        )
-    }
-
-    suspend fun updateReportStatus(report: UserReport, status: String): Result<Unit> = runCatching {
-        requireUserId()
-        val safeStatus = if (status in listOf("open", "resolved", "dismissed")) status else "resolved"
-        db.collection("reports").document(report.id).update(
-            mapOf(
-                "status" to safeStatus,
-                "updatedAt" to FieldValue.serverTimestamp()
-            )
-        ).await()
-        writeAuditLog("REPORT_$safeStatus", report.targetUid, "Marked report ${report.id} as $safeStatus")
-        Unit
-    }.onFailure { e ->
-        if (e is CancellationException) throw e
-        handleFirestoreError(e, OperationType.UPDATE, "reports/${report.id}")
-    }
-
-    suspend fun cleanupExpiredStatuses(): Result<Int> = runCatching {
-        requireUserId()
-        val now = System.currentTimeMillis()
-        val snapshot = db.collection("statuses").get().await()
-        val expired = snapshot.documents.filter { doc ->
-            val exp = doc.getLong("expiresAtEpochMs") ?: 0L
-            exp in 1 until now
-        }
-        val batch = db.batch()
-        expired.take(100).forEach { batch.delete(it.reference) }
-        if (expired.isNotEmpty()) batch.commit().await()
-        writeAuditLog("CLEANUP_STATUSES", "statuses", "Deleted ${expired.size} expired statuses")
-        expired.size
-    }.onFailure { e ->
-        if (e is CancellationException) throw e
-        handleFirestoreError(e, OperationType.DELETE, "statuses")
     }
 
     // --- Chats & Messages ---
@@ -967,11 +637,28 @@ class AlapRepository(private val db: FirebaseFirestore) {
         handleFirestoreError(e, OperationType.CREATE, "chats")
     }
 
+    private suspend fun generateUniqueStudyCode(): String {
+        val alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+        val random = SecureRandom()
+        repeat(6) {
+            val code = (1..6).map { alphabet[random.nextInt(alphabet.length)] }.joinToString("")
+            val existing = try {
+                db.collection("study_invites").document(code).get().await()
+            } catch (_: Exception) {
+                null
+            }
+            if (existing == null || !existing.exists()) return code
+        }
+        return "ST" + (1000 + random.nextInt(8999)).toString()
+    }
+
     suspend fun createGroupChat(
         currentUser: UserProfile,
         title: String,
         description: String,
-        memberUids: List<String>
+        memberUids: List<String>,
+        isStudyGroup: Boolean = false,
+        studyLockToAdmin: Boolean = false
     ): Result<String> = runCatching {
         val uid = requireUserId()
         val participants = (listOf(uid) + memberUids).distinct().take(50)
@@ -980,6 +667,7 @@ class AlapRepository(private val db: FirebaseFirestore) {
         val safeTitle = title.trim().ifBlank { "Alap Group" }.take(60)
         val safeDesc = description.trim().take(200)
         val unreadMap = participants.filter { it != uid }.associateWith { 1L }
+        val generatedCode = if (isStudyGroup) generateUniqueStudyCode() else ""
 
         val chatPayload = mapOf(
             "chatType" to "group",
@@ -993,6 +681,9 @@ class AlapRepository(private val db: FirebaseFirestore) {
             "lastMessageSenderId" to uid,
             "lastMessageType" to "system",
             "lastMessageAt" to FieldValue.serverTimestamp(),
+            "isStudyGroup" to isStudyGroup,
+            "studyLockToAdmin" to studyLockToAdmin,
+            "inviteCode" to generatedCode,
             "typingUids" to emptyList<String>(),
             "pinnedByUids" to emptyList<String>(),
             "mutedByUids" to emptyList<String>(),
@@ -1003,12 +694,31 @@ class AlapRepository(private val db: FirebaseFirestore) {
         )
         docRef.set(chatPayload).await()
 
+        if (isStudyGroup && generatedCode.isNotBlank()) {
+            val invitePayload = mapOf(
+                "inviteCode" to generatedCode,
+                "chatId" to docRef.id,
+                "title" to safeTitle,
+                "description" to safeDesc,
+                "createdBy" to uid,
+                "isActive" to true,
+                "createdAt" to FieldValue.serverTimestamp(),
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+            db.collection("study_invites").document(generatedCode).set(invitePayload).await()
+        }
+
         val systemMsgRef = docRef.collection("messages").document()
+        val introText = if (isStudyGroup && generatedCode.isNotBlank()) {
+            "${currentUser.displayName} created Study Group \"$safeTitle\" • Class Code: $generatedCode"
+        } else {
+            "${currentUser.displayName} created \"$safeTitle\""
+        }
         val systemMsgPayload = mapOf(
             "chatId" to docRef.id,
             "senderId" to uid,
             "senderName" to currentUser.displayName.ifBlank { "Alap User" }.take(60),
-            "text" to "${currentUser.displayName} created \"$safeTitle\"",
+            "text" to introText,
             "messageType" to "system",
             "isForwarded" to false,
             "isEdited" to false,
@@ -1027,6 +737,153 @@ class AlapRepository(private val db: FirebaseFirestore) {
         handleFirestoreError(e, OperationType.CREATE, "chats")
     }
 
+    suspend fun setStudyGroupLock(chat: Chat, lockToAdmin: Boolean): Result<Unit> = runCatching {
+        requireUserId()
+        require(chat.chatType == "group") { "Only group chats support study post lock." }
+        db.collection("chats").document(chat.id).update(
+            mapOf(
+                "studyLockToAdmin" to lockToAdmin,
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+        ).await()
+        Unit
+    }.onFailure { e ->
+        if (e is CancellationException) throw e
+        handleFirestoreError(e, OperationType.UPDATE, "chats/${chat.id}")
+    }
+
+    suspend fun generateAndEnableStudyInvite(chat: Chat): Result<String> = runCatching {
+        val uid = requireUserId()
+        require(chat.chatType == "group") { "Only group chats can have a Class Invite Code." }
+        val existingCode = chat.inviteCode.trim().uppercase()
+        val code = if (existingCode.length in 6..16) existingCode else generateUniqueStudyCode()
+        val chatRef = db.collection("chats").document(chat.id)
+        chatRef.update(
+            mapOf(
+                "isStudyGroup" to true,
+                "inviteCode" to code,
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+        ).await()
+
+        val inviteRef = db.collection("study_invites").document(code)
+        val inviteSnap = inviteRef.get().await()
+        if (!inviteSnap.exists()) {
+            inviteRef.set(
+                mapOf(
+                    "inviteCode" to code,
+                    "chatId" to chat.id,
+                    "title" to chat.title.ifBlank { "Study Group" }.take(60),
+                    "description" to chat.description.take(200),
+                    "createdBy" to uid,
+                    "isActive" to true,
+                    "createdAt" to FieldValue.serverTimestamp(),
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+        } else if (inviteSnap.getBoolean("isActive") != true) {
+            inviteRef.update(
+                mapOf(
+                    "isActive" to true,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+        }
+        code
+    }.onFailure { e ->
+        if (e is CancellationException) throw e
+        handleFirestoreError(e, OperationType.UPDATE, "chats/${chat.id}")
+    }
+
+    suspend fun joinGroupByStudyCode(inviteCode: String): Result<String> = runCatching {
+        val uid = requireUserId()
+        val cleanCode = inviteCode.trim().uppercase().replace(Regex("[^A-Z0-9_-]"), "")
+        require(cleanCode.length in 6..16) { "Enter a valid 6-character Class Code." }
+        val inviteSnap = db.collection("study_invites").document(cleanCode).get().await()
+        if (!inviteSnap.exists()) {
+            throw IllegalArgumentException("No Study Group found for code '$cleanCode'.")
+        }
+        val invite = inviteSnap.toObject(StudyInvite::class.java, ServerTimestampBehavior.ESTIMATE)
+            ?: throw IllegalStateException("Invalid invite record.")
+        if (!invite.isActive || invite.chatId.isBlank()) {
+            throw IllegalStateException("This Class Code is no longer active.")
+        }
+        db.collection("chats").document(invite.chatId).update(
+            mapOf(
+                "participantUids" to FieldValue.arrayUnion(uid),
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+        ).await()
+        invite.chatId
+    }.onFailure { e ->
+        if (e is CancellationException) throw e
+        if (e is FirebaseFirestoreException) {
+            handleFirestoreError(e, OperationType.UPDATE, "study_invites/$inviteCode")
+        }
+    }
+
+    // --- Group Study Board (Notes, Routine & Exam Countdown) ---
+
+    fun observeStudyItems(chatId: String): Flow<List<StudyItem>> = flow {
+        val uid = requireUserId()
+        val path = "chats/$chatId/study_items"
+        emitAll(
+            db.collection("chats").document(chatId).collection("study_items")
+                .snapshots()
+                .map { snapshot ->
+                    snapshot.toObjects(StudyItem::class.java, ServerTimestampBehavior.ESTIMATE)
+                        .sortedByDescending { it.updatedAt ?: it.createdAt ?: Timestamp(0, 0) }
+                }
+                .catch { error ->
+                    handleListenerError(error, OperationType.LIST, path, uid)
+                    emit(emptyList())
+                }
+        )
+    }
+
+    suspend fun addStudyItem(
+        chat: Chat,
+        itemType: String,
+        title: String,
+        details: String,
+        scheduleText: String,
+        examDateEpochMs: Long,
+        createdByName: String
+    ): Result<String> = runCatching {
+        val uid = requireUserId()
+        val safeType = if (itemType in listOf("note", "routine", "exam")) itemType else "note"
+        val cleanTitle = title.trim().take(100)
+        require(cleanTitle.isNotBlank()) { "Title cannot be empty." }
+        val docRef = db.collection("chats").document(chat.id).collection("study_items").document()
+        val payload = mapOf(
+            "chatId" to chat.id,
+            "itemType" to safeType,
+            "title" to cleanTitle,
+            "details" to details.trim().take(400),
+            "scheduleText" to scheduleText.trim().take(80),
+            "examDateEpochMs" to examDateEpochMs.coerceAtLeast(0L),
+            "createdBy" to uid,
+            "createdByName" to createdByName.trim().ifBlank { "Student" }.take(60),
+            "participantUids" to chat.participantUids,
+            "createdAt" to FieldValue.serverTimestamp(),
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+        docRef.set(payload).await()
+        docRef.id
+    }.onFailure { e ->
+        if (e is CancellationException) throw e
+        handleFirestoreError(e, OperationType.CREATE, "chats/${chat.id}/study_items")
+    }
+
+    suspend fun deleteStudyItem(chatId: String, itemId: String): Result<Unit> = runCatching {
+        requireUserId()
+        db.collection("chats").document(chatId).collection("study_items").document(itemId).delete().await()
+        Unit
+    }.onFailure { e ->
+        if (e is CancellationException) throw e
+        handleFirestoreError(e, OperationType.DELETE, "chats/$chatId/study_items/$itemId")
+    }
+
     suspend fun sendMessage(
         chat: Chat,
         senderName: String,
@@ -1035,6 +892,10 @@ class AlapRepository(private val db: FirebaseFirestore) {
         stickerId: String? = null,
         pollQuestion: String? = null,
         pollOptions: List<String>? = null,
+        correctOptionIndex: Int? = null,
+        quizExplanation: String? = null,
+        flashcardFront: String? = null,
+        flashcardBack: String? = null,
         replyTo: ChatMessage? = null,
         isForwarded: Boolean = false
     ): Result<String> = runCatching {
@@ -1044,6 +905,8 @@ class AlapRepository(private val db: FirebaseFirestore) {
         val preview = when (messageType) {
             "sticker" -> AlapConstants.STICKER_OPTIONS.firstOrNull { it.first == stickerId }?.second ?: "Sticker"
             "poll" -> "Poll: ${pollQuestion.orEmpty().ifBlank { cleanText }}"
+            "quiz" -> "Quiz: ${pollQuestion.orEmpty().ifBlank { cleanText }}"
+            "flashcard" -> "Flashcard: ${flashcardFront.orEmpty().ifBlank { cleanText }}"
             else -> cleanText
         }.take(300)
 
@@ -1056,7 +919,11 @@ class AlapRepository(private val db: FirebaseFirestore) {
             "stickerId" to stickerId,
             "pollQuestion" to pollQuestion?.trim()?.take(200),
             "pollOptions" to pollOptions?.map { it.trim().take(60) }?.filter { it.isNotBlank() }?.take(6),
-            "pollVotes" to if (messageType == "poll") emptyMap<String, Long>() else null,
+            "pollVotes" to if (messageType == "poll" || messageType == "quiz") emptyMap<String, Long>() else null,
+            "correctOptionIndex" to correctOptionIndex?.coerceIn(0, 5)?.toLong(),
+            "quizExplanation" to quizExplanation?.trim()?.take(300)?.takeIf { it.isNotBlank() },
+            "flashcardFront" to flashcardFront?.trim()?.take(200)?.takeIf { it.isNotBlank() },
+            "flashcardBack" to flashcardBack?.trim()?.take(500)?.takeIf { it.isNotBlank() },
             "replyToMessageId" to replyTo?.id?.takeIf { it.isNotBlank() },
             "replyToSenderName" to replyTo?.senderName?.take(60)?.takeIf { it.isNotBlank() },
             "replyToPreview" to replyTo?.let {

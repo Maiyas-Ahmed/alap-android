@@ -1,8 +1,8 @@
 package com.example.data.repository
 
 import com.example.base.FirestoreEmulatorTestBase
-import com.example.data.model.AppConfig
 import com.example.data.model.UserProfile
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -115,14 +115,28 @@ class AlapRepositoryRuleTest : FirestoreEmulatorTestBase() {
 
     @Test
     fun updateAppConfig_regularUser_failsWithPermissionDenied() = runBlocking {
-        signInTestUser(ALICE_EMAIL)
-        val repo = AlapRepository(firestore)
-        val result = withTimeout(DEFAULT_TIMEOUT_MS) {
-            repo.updateAppConfig(AppConfig(appTagline = "Unauthorized"))
+        val aliceUid = signInTestUser(ALICE_EMAIL)
+        var denied = false
+        try {
+            withTimeout(DEFAULT_TIMEOUT_MS) {
+                firestore.collection("app_config").document("global").set(
+                    mapOf(
+                        "appTagline" to "Unauthorized",
+                        "maintenanceBanner" to "",
+                        "isReadOnlyMode" to false,
+                        "allowStatusUpdates" to true,
+                        "allowGroupCreation" to true,
+                        "maxMessageLength" to 1000L,
+                        "minAppVersion" to "1.0",
+                        "updatedBy" to aliceUid,
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
+                ).await()
+            }
+        } catch (e: Exception) {
+            denied = e.unwrapFirestoreException()?.code == FirebaseFirestoreException.Code.PERMISSION_DENIED
         }
-        assertTrue(result.isFailure)
-        val ffe = result.exceptionOrNull()?.unwrapFirestoreException()
-        assertEquals(FirebaseFirestoreException.Code.PERMISSION_DENIED, ffe?.code)
+        assertTrue("Expected PERMISSION_DENIED when regular user writes app_config", denied)
     }
 
     @Test
@@ -355,14 +369,25 @@ class AlapRepositoryRuleTest : FirestoreEmulatorTestBase() {
         assertTrue("Owner must be allowed to save device push token", tokenSave.isSuccess)
 
         // Regular user Alice cannot create Primary Admin API keys
-        val apiKeyRes = withTimeout(DEFAULT_TIMEOUT_MS) {
-            repo.createAdminApiKey("Unauthorized Website Key", listOf("push:send"))
+        var apiKeyDenied = false
+        try {
+            withTimeout(DEFAULT_TIMEOUT_MS) {
+                firestore.collection("admin_api_keys").document("unauth_key").set(
+                    mapOf(
+                        "label" to "Unauthorized Website Key",
+                        "apiKey" to "alap_live_unauth_key_123456",
+                        "scopes" to listOf("push:send"),
+                        "isActive" to true,
+                        "createdBy" to aliceUid,
+                        "createdAt" to FieldValue.serverTimestamp(),
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
+                ).await()
+            }
+        } catch (e: Exception) {
+            apiKeyDenied = e.unwrapFirestoreException()?.code == FirebaseFirestoreException.Code.PERMISSION_DENIED
         }
-        assertTrue("Regular user must fail creating Admin API key", apiKeyRes.isFailure)
-        assertEquals(
-            FirebaseFirestoreException.Code.PERMISSION_DENIED,
-            apiKeyRes.exceptionOrNull()?.unwrapFirestoreException()?.code
-        )
+        assertTrue("Regular user must receive PERMISSION_DENIED creating Admin API key", apiKeyDenied)
 
         // Bob cannot read Alice's device token
         signInTestUser(BOB_EMAIL)
@@ -431,6 +456,350 @@ class AlapRepositoryRuleTest : FirestoreEmulatorTestBase() {
             repo.observeMessages(chatId, bobUid).first { list -> list.none { it.message.id == msgId } }
         }
         assertTrue("Delivered relay message should be purged from Firestore", remaining.none { it.message.id == msgId })
+    }
+
+    @Test
+    fun studentModeAndStudyFeatures_workEndToEndAgainstFirestoreRules() = runBlocking {
+        val aliceUid = signInTestUser(ALICE_EMAIL)
+        val repo = AlapRepository(firestore)
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            repo.ensureUserProfileAndPrivateInfo(aliceUid, "Alice", ALICE_EMAIL).getOrThrow()
+            repo.updateProfileAndPrivacy(
+                displayName = "Alice Student",
+                handle = "alice_st",
+                phoneNumber = "",
+                alapId = "ALAP-ST1001",
+                about = "Preparing for HSC",
+                avatarId = "avatar_emerald",
+                hidePhoneNumber = true,
+                hideUserId = false,
+                hideOnlineStatus = false,
+                hideAbout = false,
+                isDiscoverable = true,
+                isStudent = true,
+                studentClass = "HSC-26",
+                studentSubject = "Physics, Math",
+                markProfileCompleted = true
+            ).getOrThrow()
+        }
+
+        val aliceProfile = withTimeout(FLOW_TIMEOUT_MS) {
+            repo.observeMyProfile(aliceUid).first { it != null && it.isStudent }
+        }!!
+        assertTrue(aliceProfile.isStudent)
+        assertEquals("HSC-26", aliceProfile.studentClass)
+        assertEquals("Physics, Math", aliceProfile.studentSubject)
+
+        val bobUid = signInTestUser(BOB_EMAIL)
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            repo.ensureUserProfileAndPrivateInfo(bobUid, "Bob", BOB_EMAIL).getOrThrow()
+        }
+        val charlieUid = signInTestUser(CHARLIE_EMAIL)
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            repo.ensureUserProfileAndPrivateInfo(charlieUid, "Charlie", CHARLIE_EMAIL).getOrThrow()
+        }
+
+        // Alice creates a Study Group -> auto-generates 6-char inviteCode & study_invites record
+        signInTestUser(ALICE_EMAIL)
+        val groupId = withTimeout(DEFAULT_TIMEOUT_MS) {
+            repo.createGroupChat(
+                currentUser = aliceProfile,
+                title = "Physics Revision Batch",
+                description = "HSC 2026 study room",
+                memberUids = listOf(bobUid),
+                isStudyGroup = true
+            ).getOrThrow()
+        }
+        val studyGroup = withTimeout(FLOW_TIMEOUT_MS) {
+            repo.observeChat(groupId).first { it != null && it.isStudyGroup && it.inviteCode.isNotBlank() }
+        }!!
+        assertTrue(studyGroup.inviteCode.length >= 6)
+
+        // Charlie joins via 6-char Class Invite Code without needing Alice to share phone/add manually
+        signInTestUser(CHARLIE_EMAIL)
+        val joinedChatId = withTimeout(DEFAULT_TIMEOUT_MS) {
+            repo.joinGroupByStudyCode(studyGroup.inviteCode).getOrThrow()
+        }
+        assertEquals(groupId, joinedChatId)
+
+        val updatedGroup = withTimeout(FLOW_TIMEOUT_MS) {
+            repo.observeChat(groupId).first { it != null && charlieUid in it.participantUids }
+        }!!
+
+        // Charlie posts a Quiz, Flashcard, and Group Study Board item
+        val quizId = withTimeout(DEFAULT_TIMEOUT_MS) {
+            repo.sendMessage(
+                chat = updatedGroup,
+                senderName = "Charlie",
+                text = "Quiz: Unit of Force?",
+                messageType = "quiz",
+                pollQuestion = "What is the SI unit of Force?",
+                pollOptions = listOf("Joule", "Newton", "Watt"),
+                correctOptionIndex = 1,
+                quizExplanation = "1 Newton = 1 kg*m/s^2"
+            ).getOrThrow()
+        }
+        val cardId = withTimeout(DEFAULT_TIMEOUT_MS) {
+            repo.sendMessage(
+                chat = updatedGroup,
+                senderName = "Charlie",
+                text = "Flashcard: Ohm's Law",
+                messageType = "flashcard",
+                flashcardFront = "Formula for Ohm's Law",
+                flashcardBack = "V = I * R"
+            ).getOrThrow()
+        }
+        val studyItemId = withTimeout(DEFAULT_TIMEOUT_MS) {
+            repo.addStudyItem(
+                chat = updatedGroup,
+                itemType = "exam",
+                title = "Physics Paper 1 Exam",
+                details = "Vectors, Dynamics, Work & Energy",
+                scheduleText = "9:00 AM",
+                examDateEpochMs = System.currentTimeMillis() + 86400000L * 7L,
+                createdByName = "Charlie"
+            ).getOrThrow()
+        }
+
+        val messages = withTimeout(FLOW_TIMEOUT_MS) {
+            repo.observeMessages(groupId, charlieUid).first { list ->
+                list.any { it.message.id == quizId } && list.any { it.message.id == cardId }
+            }
+        }.map { it.message }
+        val quizMsg = messages.first { it.id == quizId }
+        val cardMsg = messages.first { it.id == cardId }
+        assertEquals(1L, quizMsg.correctOptionIndex)
+        assertEquals("Formula for Ohm's Law", cardMsg.flashcardFront)
+
+        // Bob votes on the quiz
+        signInTestUser(BOB_EMAIL)
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            repo.votePoll(groupId, quizMsg, 1).getOrThrow()
+        }
+
+        // Study board lists the item and Charlie (creator) can delete it
+        signInTestUser(CHARLIE_EMAIL)
+        val boardItems = withTimeout(FLOW_TIMEOUT_MS) {
+            repo.observeStudyItems(groupId).first { items -> items.any { it.id == studyItemId } }
+        }
+        assertTrue(boardItems.any { it.title == "Physics Paper 1 Exam" })
+
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            repo.deleteStudyItem(groupId, studyItemId).getOrThrow()
+        }
+    }
+
+    @Test
+    fun ageLockedStudentAndAdultPersonalToggle_behaveCorrectlyAgainstRules() = runBlocking {
+        val currentYear = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR).toLong()
+        val under18BirthYear = currentYear - 15L
+        val adultBirthYear = currentYear - 25L
+
+        val aliceEmail = "under18.${UUID.randomUUID()}@test.com"
+        val aliceUid = signInTestUser(aliceEmail)
+        val repo = AlapRepository(firestore)
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            repo.ensureUserProfileAndPrivateInfo(aliceUid, "Under18 User", aliceEmail).getOrThrow()
+            // Even if caller passes accountType="personal" & isStudent=false, under-18 birthYear locks account as student
+            repo.updateProfileAndPrivacy(
+                displayName = "Under18 Student",
+                handle = "under18_st",
+                phoneNumber = "",
+                alapId = "ALAP-U18001",
+                about = "Class 10 student",
+                avatarId = "avatar_emerald",
+                hidePhoneNumber = true,
+                hideUserId = false,
+                hideOnlineStatus = false,
+                hideAbout = false,
+                isDiscoverable = true,
+                isStudent = false,
+                studentClass = "SSC-27",
+                studentSubject = "Science",
+                birthYear = under18BirthYear,
+                accountType = "personal",
+                markProfileCompleted = true
+            ).getOrThrow()
+        }
+
+        val lockedProfile = withTimeout(FLOW_TIMEOUT_MS) {
+            repo.observeMyProfile(aliceUid).first { it != null && it.isProfileCompleted }
+        }!!
+        assertEquals("student", lockedProfile.accountType)
+        assertTrue(lockedProfile.isStudent)
+        assertTrue(lockedProfile.isLockedStudentAccount())
+
+        // Subsequent attempt to turn off isStudent or switch to personal must remain locked as student
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            repo.updateProfileAndPrivacy(
+                displayName = "Under18 Student",
+                handle = "under18_st",
+                phoneNumber = "",
+                alapId = "ALAP-U18001",
+                about = "Trying to unlock",
+                avatarId = "avatar_emerald",
+                hidePhoneNumber = true,
+                hideUserId = false,
+                hideOnlineStatus = false,
+                hideAbout = false,
+                isDiscoverable = true,
+                isStudent = false,
+                studentClass = "SSC-27",
+                studentSubject = "Science",
+                birthYear = adultBirthYear,
+                accountType = "personal",
+                markProfileCompleted = true
+            ).getOrThrow()
+        }
+        val stillLocked = withTimeout(FLOW_TIMEOUT_MS) {
+            repo.observeMyProfile(aliceUid).first { it != null && it.about == "Trying to unlock" }
+        }!!
+        assertEquals("student", stillLocked.accountType)
+        assertTrue(stillLocked.isStudent)
+
+        // Adult Personal user CAN toggle isStudent ON and OFF freely
+        val adultEmail = "adult.${UUID.randomUUID()}@test.com"
+        val adultUid = signInTestUser(adultEmail)
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            repo.ensureUserProfileAndPrivateInfo(adultUid, "Adult User", adultEmail).getOrThrow()
+            repo.updateProfileAndPrivacy(
+                displayName = "Adult Personal",
+                handle = "adult_p",
+                phoneNumber = "",
+                alapId = "ALAP-ADULT1",
+                about = "Adult personal account",
+                avatarId = "avatar_slate",
+                hidePhoneNumber = true,
+                hideUserId = false,
+                hideOnlineStatus = false,
+                hideAbout = false,
+                isDiscoverable = true,
+                isStudent = true,
+                studentClass = "Masters",
+                studentSubject = "CSE",
+                birthYear = adultBirthYear,
+                accountType = "personal",
+                markProfileCompleted = true
+            ).getOrThrow()
+        }
+        val adultOn = withTimeout(FLOW_TIMEOUT_MS) {
+            repo.observeMyProfile(adultUid).first { it != null && it.isProfileCompleted && it.isStudent }
+        }!!
+        assertEquals("personal", adultOn.accountType)
+        assertTrue(adultOn.isStudent)
+
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            repo.updateProfileAndPrivacy(
+                displayName = "Adult Personal",
+                handle = "adult_p",
+                phoneNumber = "",
+                alapId = "ALAP-ADULT1",
+                about = "Toggled off",
+                avatarId = "avatar_slate",
+                hidePhoneNumber = true,
+                hideUserId = false,
+                hideOnlineStatus = false,
+                hideAbout = false,
+                isDiscoverable = true,
+                isStudent = false,
+                studentClass = "Masters",
+                studentSubject = "CSE",
+                birthYear = adultBirthYear,
+                accountType = "personal",
+                markProfileCompleted = true
+            ).getOrThrow()
+        }
+        val adultOff = withTimeout(FLOW_TIMEOUT_MS) {
+            repo.observeMyProfile(adultUid).first { it != null && it.about == "Toggled off" }
+        }!!
+        assertEquals("personal", adultOff.accountType)
+        assertTrue(!adultOff.isStudent)
+    }
+
+    @Test
+    fun groupStudyLockToAdmin_blocksNonAdminStudyPosts_allowsAdmin() = runBlocking {
+        val aliceUid = signInTestUser(ALICE_EMAIL)
+        val repo = AlapRepository(firestore)
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            repo.ensureUserProfileAndPrivateInfo(aliceUid, "Alice Teacher", ALICE_EMAIL).getOrThrow()
+        }
+        val bobUid = signInTestUser(BOB_EMAIL)
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            repo.ensureUserProfileAndPrivateInfo(bobUid, "Bob Student", BOB_EMAIL).getOrThrow()
+        }
+
+        signInTestUser(ALICE_EMAIL)
+        val aliceProfile = UserProfile(userId = aliceUid, displayName = "Alice Teacher")
+        val groupId = withTimeout(DEFAULT_TIMEOUT_MS) {
+            repo.createGroupChat(
+                currentUser = aliceProfile,
+                title = "Locked Chemistry Batch",
+                description = "Admin posts only",
+                memberUids = listOf(bobUid),
+                isStudyGroup = true,
+                studyLockToAdmin = false
+            ).getOrThrow()
+        }
+        val initialGroup = withTimeout(FLOW_TIMEOUT_MS) {
+            repo.observeChat(groupId).first { it != null }
+        }!!
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            repo.setStudyGroupLock(initialGroup, true).getOrThrow()
+        }
+        val lockedGroup = withTimeout(FLOW_TIMEOUT_MS) {
+            repo.observeChat(groupId).first { it != null && it.studyLockToAdmin }
+        }!!
+
+        // Non-admin Bob is rejected when adding Study Board items or sending a Quiz
+        signInTestUser(BOB_EMAIL)
+        val bobNoteRes = withTimeout(DEFAULT_TIMEOUT_MS) {
+            repo.addStudyItem(
+                chat = lockedGroup,
+                itemType = "note",
+                title = "Student Note",
+                details = "Blocked",
+                scheduleText = "",
+                examDateEpochMs = 0L,
+                createdByName = "Bob Student"
+            )
+        }
+        assertTrue(bobNoteRes.isFailure)
+        assertEquals(
+            FirebaseFirestoreException.Code.PERMISSION_DENIED,
+            bobNoteRes.exceptionOrNull()?.unwrapFirestoreException()?.code
+        )
+
+        val bobQuizRes = withTimeout(DEFAULT_TIMEOUT_MS) {
+            repo.sendMessage(
+                chat = lockedGroup,
+                senderName = "Bob Student",
+                text = "Quiz: Test?",
+                messageType = "quiz",
+                pollQuestion = "Test?",
+                pollOptions = listOf("A", "B"),
+                correctOptionIndex = 0
+            )
+        }
+        assertTrue(bobQuizRes.isFailure)
+        assertEquals(
+            FirebaseFirestoreException.Code.PERMISSION_DENIED,
+            bobQuizRes.exceptionOrNull()?.unwrapFirestoreException()?.code
+        )
+
+        // Group Admin Alice succeeds
+        signInTestUser(ALICE_EMAIL)
+        val adminNoteRes = withTimeout(DEFAULT_TIMEOUT_MS) {
+            repo.addStudyItem(
+                chat = lockedGroup,
+                itemType = "note",
+                title = "Official Syllabus",
+                details = "Chapter 1-3",
+                scheduleText = "",
+                examDateEpochMs = 0L,
+                createdByName = "Alice Teacher"
+            )
+        }
+        assertTrue(adminNoteRes.isSuccess)
     }
 
     private companion object {

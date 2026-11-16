@@ -36,8 +36,12 @@ class LocalPreferencesManager(private val context: Context) {
         prefs[KEY_APP_LOCK_PIN_HASH] ?: ""
     }
 
-    val adminPinHash: Flow<String> = context.alapDataStore.data.map { prefs ->
-        prefs[KEY_ADMIN_PIN_HASH] ?: ""
+    val studyFocusMinutesTotal: Flow<Long> = context.alapDataStore.data.map { prefs ->
+        prefs[KEY_STUDY_FOCUS_MINUTES_TOTAL] ?: 0L
+    }
+
+    val studySessionsCompleted: Flow<Long> = context.alapDataStore.data.map { prefs ->
+        prefs[KEY_STUDY_SESSIONS_COMPLETED] ?: 0L
     }
 
     val dismissedAnnouncementId: Flow<String> = context.alapDataStore.data.map { prefs ->
@@ -87,18 +91,18 @@ class LocalPreferencesManager(private val context: Context) {
         }
     }
 
-    suspend fun setAdminPin(rawPin: String) {
-        context.alapDataStore.edit {
-            if (rawPin.isBlank()) it.remove(KEY_ADMIN_PIN_HASH)
-            else it[KEY_ADMIN_PIN_HASH] = hashPin("admin", rawPin)
-        }
-    }
-
     fun verifyAppPin(rawPin: String, storedHash: String): Boolean =
         storedHash.isNotBlank() && hashPin("app", rawPin) == storedHash
 
-    fun verifyAdminPin(rawPin: String, storedHash: String): Boolean =
-        storedHash.isNotBlank() && hashPin("admin", rawPin) == storedHash
+    suspend fun recordCompletedStudyMinutes(minutes: Int) {
+        if (minutes <= 0) return
+        context.alapDataStore.edit { prefs ->
+            val currentMin = prefs[KEY_STUDY_FOCUS_MINUTES_TOTAL] ?: 0L
+            val currentSessions = prefs[KEY_STUDY_SESSIONS_COMPLETED] ?: 0L
+            prefs[KEY_STUDY_FOCUS_MINUTES_TOTAL] = currentMin + minutes.toLong()
+            prefs[KEY_STUDY_SESSIONS_COMPLETED] = currentSessions + 1L
+        }
+    }
 
     suspend fun dismissAnnouncement(announcementId: String) {
         context.alapDataStore.edit { it[KEY_DISMISSED_ANNOUNCEMENT_ID] = announcementId }
@@ -148,7 +152,8 @@ class LocalPreferencesManager(private val context: Context) {
         val KEY_FLOATING_GLASS_ENABLED = booleanPreferencesKey("floating_glass_enabled")
         val KEY_SCREEN_SECURITY_ENABLED = booleanPreferencesKey("screen_security_enabled")
         val KEY_APP_LOCK_PIN_HASH = stringPreferencesKey("app_lock_pin_hash")
-        val KEY_ADMIN_PIN_HASH = stringPreferencesKey("admin_pin_hash")
+        val KEY_STUDY_FOCUS_MINUTES_TOTAL = longPreferencesKey("study_focus_minutes_total")
+        val KEY_STUDY_SESSIONS_COMPLETED = longPreferencesKey("study_sessions_completed")
         val KEY_DISMISSED_ANNOUNCEMENT_ID = stringPreferencesKey("dismissed_announcement_id")
         val KEY_LAST_NOTIFIED_ANNOUNCEMENT_ID = stringPreferencesKey("last_notified_announcement_id")
         val KEY_PERMISSIONS_ONBOARDING_DONE = booleanPreferencesKey("permissions_onboarding_done")

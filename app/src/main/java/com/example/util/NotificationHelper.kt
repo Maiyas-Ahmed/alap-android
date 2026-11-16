@@ -36,7 +36,7 @@ object NotificationHelper {
                 CHANNEL_NAME,
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Notifications for official Alap app updates and admin announcements"
+                description = "Notifications for official Alap app updates and announcements"
                 enableVibration(true)
             }
             val msgChannel = NotificationChannel(

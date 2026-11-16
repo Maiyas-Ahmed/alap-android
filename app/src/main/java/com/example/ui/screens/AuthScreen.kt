@@ -243,7 +243,7 @@ fun AuthScreen(
 
                 Spacer(modifier = Modifier.height(10.dp))
                 Text(
-                    text = "Sign in or create an account automatically. Authorized Admins unlock the Admin Console.",
+                    text = "Sign in or create your encrypted offline-first Alap account with Gmail.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center

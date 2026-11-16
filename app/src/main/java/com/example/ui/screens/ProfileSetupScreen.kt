@@ -30,10 +30,14 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Cake
+import java.util.Calendar
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -86,7 +90,13 @@ fun ProfileSetupScreen(
         hideOnlineStatus: Boolean,
         hideAbout: Boolean,
         hideReadReceipts: Boolean,
-        isDiscoverable: Boolean
+        isDiscoverable: Boolean,
+        isStudent: Boolean,
+        studentClass: String,
+        studentSubject: String,
+        birthYear: Long,
+        accountType: String,
+        teacherSubject: String
     ) -> Unit
 ) {
     val clipboard = LocalClipboardManager.current
@@ -132,6 +142,35 @@ fun ProfileSetupScreen(
     }
     var isDiscoverable by remember(existingProfile?.isDiscoverable) {
         mutableStateOf(existingProfile?.isDiscoverable ?: true)
+    }
+    val currentYear = remember { Calendar.getInstance().get(Calendar.YEAR) }
+    var birthYearInput by remember(existingPrivateInfo?.birthYear) {
+        mutableStateOf(
+            existingPrivateInfo?.birthYear?.takeIf { it in 1940L..currentYear.toLong() }?.toString() ?: ""
+        )
+    }
+    val parsedBirthYear = birthYearInput.toLongOrNull()?.takeIf { it in 1940L..currentYear.toLong() } ?: 0L
+    val computedAge = if (parsedBirthYear > 0L) (currentYear - parsedBirthYear).toInt() else null
+    val isUnder18 = computedAge != null && computedAge < 18
+
+    var selectedAccountType by remember(existingProfile?.accountType) {
+        mutableStateOf(
+            if (existingProfile?.accountType == "student") "student" else "personal"
+        )
+    }
+    val effectiveAccountType = if (isUnder18) "student" else selectedAccountType
+    val isLockedStudent = effectiveAccountType == "student"
+
+    var isStudent by remember(existingProfile?.isStudent) {
+        mutableStateOf(existingProfile?.isStudent ?: false)
+    }
+    val effectiveIsStudent = if (isLockedStudent) true else isStudent
+
+    var studentClass by remember(existingProfile?.studentClass) {
+        mutableStateOf(existingProfile?.studentClass ?: "")
+    }
+    var studentSubject by remember(existingProfile?.studentSubject) {
+        mutableStateOf(existingProfile?.studentSubject ?: "")
     }
 
     var copiedId by remember { mutableStateOf(false) }
@@ -366,6 +405,167 @@ fun ProfileSetupScreen(
                 }
             }
 
+            // Age Gate & Account Type Selection Card
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = Color.White,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "Account Type & Age Verification",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "Under-18 users open a protected Student Account (ST) and cannot switch to Personal mode.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = birthYearInput,
+                        onValueChange = { raw ->
+                            birthYearInput = raw.filter { it.isDigit() }.take(4)
+                        },
+                        label = { Text("Birth Year (e.g. 2005 or 2010)") },
+                        leadingIcon = { Icon(Icons.Filled.Cake, contentDescription = null) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        supportingText = {
+                            Text(
+                                text = when {
+                                    computedAge == null -> "Required 4-digit year (1940–$currentYear) — stored privately"
+                                    isUnder18 -> "Age $computedAge (Under 18) • Protected Student Account active"
+                                    else -> "Age $computedAge (18+) • Eligible for Personal or Student Account"
+                                },
+                                color = if (isUnder18) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("setup_birth_year_input")
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        val studentSelected = effectiveAccountType == "student"
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = if (studentSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                            border = BorderStroke(
+                                width = if (studentSelected) 2.dp else 1.dp,
+                                color = if (studentSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { selectedAccountType = "student" }
+                                .testTag("setup_account_type_student")
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = "Student (ST)",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (studentSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Locked Student mode • Study tools always on",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        val personalSelected = effectiveAccountType == "personal"
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = when {
+                                isUnder18 -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                                personalSelected -> MaterialTheme.colorScheme.primaryContainer
+                                else -> MaterialTheme.colorScheme.surfaceVariant
+                            },
+                            border = BorderStroke(
+                                width = if (personalSelected) 2.dp else 1.dp,
+                                color = if (personalSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable(enabled = !isUnder18) { selectedAccountType = "personal" }
+                                .testTag("setup_account_type_personal")
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = "Personal (18+)",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = when {
+                                        isUnder18 -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                        personalSelected -> MaterialTheme.colorScheme.primary
+                                        else -> MaterialTheme.colorScheme.onSurface
+                                    }
+                                )
+                                Text(
+                                    text = if (isUnder18) "18+ required" else "Toggle Student Mode anytime",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
+
+                    PrivacyToggleRow(
+                        icon = Icons.Filled.School,
+                        title = if (isLockedStudent) "Student Mode (ST Locked)" else "Student Mode (ST Badge)",
+                        subtitle = when {
+                            isLockedStudent -> "Locked ON for Student Accounts • Cannot switch to Personal"
+                            effectiveIsStudent -> "ST badge active • Can turn off anytime in Edit Profile"
+                            else -> "Optional for 18+ Personal accounts"
+                        },
+                        checked = effectiveIsStudent,
+                        enabled = !isLockedStudent,
+                        onCheckedChange = { if (!isLockedStudent) isStudent = it },
+                        testTag = "setup_student_switch"
+                    )
+                    if (effectiveIsStudent) {
+                        OutlinedTextField(
+                            value = studentClass,
+                            onValueChange = { if (it.length <= 40) studentClass = it },
+                            label = { Text("Class / Batch (e.g. HSC-26, CSE 3rd Year)") },
+                            leadingIcon = { Icon(Icons.Filled.Badge, contentDescription = null) },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("setup_student_class_input")
+                        )
+                        OutlinedTextField(
+                            value = studentSubject,
+                            onValueChange = { if (it.length <= 80) studentSubject = it },
+                            label = { Text("Focus Subjects (e.g. Physics, Math)") },
+                            leadingIcon = { Icon(Icons.Filled.MenuBook, contentDescription = null) },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("setup_student_subject_input")
+                        )
+                    }
+                }
+            }
+
             // Smart Privacy Controls Card
             Surface(
                 shape = RoundedCornerShape(18.dp),
@@ -482,10 +682,16 @@ fun ProfileSetupScreen(
                         hideOnlineStatus,
                         hideAbout,
                         hideReadReceipts,
-                        isDiscoverable
+                        isDiscoverable,
+                        effectiveIsStudent,
+                        studentClass,
+                        studentSubject,
+                        parsedBirthYear,
+                        effectiveAccountType,
+                        existingProfile?.teacherSubject ?: ""
                     )
                 },
-                enabled = displayName.isNotBlank() && !isSaving,
+                enabled = displayName.isNotBlank() && parsedBirthYear > 0L && !isSaving,
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
@@ -504,7 +710,7 @@ fun ProfileSetupScreen(
                     )
                 } else {
                     Text(
-                        text = "Save Profile & Enter Alap",
+                        text = if (parsedBirthYear > 0L) "Save Profile & Enter Alap" else "Enter Birth Year to Continue",
                         style = MaterialTheme.typography.labelLarge
                     )
                 }
@@ -522,7 +728,8 @@ fun PrivacyToggleRow(
     subtitle: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
-    testTag: String
+    testTag: String,
+    enabled: Boolean = true
 ) {
     Row(
         modifier = Modifier
@@ -552,6 +759,7 @@ fun PrivacyToggleRow(
         Spacer(modifier = Modifier.width(8.dp))
         Switch(
             checked = checked,
+            enabled = enabled,
             onCheckedChange = onCheckedChange,
             modifier = Modifier.testTag(testTag)
         )

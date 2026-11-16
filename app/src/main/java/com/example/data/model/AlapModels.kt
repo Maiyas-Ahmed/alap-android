@@ -38,10 +38,20 @@ data class UserProfile(
     val isVerified: Boolean = false,
     @get:PropertyName("isSuspended") @field:PropertyName("isSuspended")
     val isSuspended: Boolean = false,
+    @get:PropertyName("isStudent") @field:PropertyName("isStudent")
+    val isStudent: Boolean = false,
+    val studentClass: String = "",
+    val studentSubject: String = "",
+    val accountType: String = "personal", // "student", "personal", "teacher"
+    @get:PropertyName("isTeacher") @field:PropertyName("isTeacher")
+    val isTeacher: Boolean = false,
+    val teacherSubject: String = "",
     @ServerTimestamp val lastSeenAt: Timestamp? = null,
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null
-)
+) {
+    fun isLockedStudentAccount(): Boolean = isProfileCompleted && accountType == "student"
+}
 
 @IgnoreExtraProperties
 data class UserPrivateInfo(
@@ -50,6 +60,7 @@ data class UserPrivateInfo(
     val email: String = "",
     val phoneNumber: String = "",
     val alapId: String = "",
+    val birthYear: Long = 0L,
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null
 )
@@ -68,15 +79,6 @@ data class EmailVerificationOtp(
 )
 
 @IgnoreExtraProperties
-data class AdminEntry(
-    @DocumentId val id: String = "",
-    val uid: String = "",
-    val email: String = "",
-    val addedBy: String = "",
-    @ServerTimestamp val createdAt: Timestamp? = null
-)
-
-@IgnoreExtraProperties
 data class AppConfig(
     @DocumentId val id: String = "",
     val appTagline: String = "Fast, minimal & offline-ready messaging",
@@ -91,19 +93,6 @@ data class AppConfig(
     val latestApkUrl: String = "",
     val latestVersionCode: Long = 1L,
     val updatedBy: String = "",
-    @ServerTimestamp val updatedAt: Timestamp? = null
-)
-
-@IgnoreExtraProperties
-data class AdminApiKey(
-    @DocumentId val id: String = "",
-    val label: String = "",
-    val apiKey: String = "",
-    val scopes: List<String> = emptyList(),
-    @get:PropertyName("isActive") @field:PropertyName("isActive")
-    val isActive: Boolean = true,
-    val createdBy: String = "",
-    @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null
 )
 
@@ -142,9 +131,14 @@ data class Chat(
     val createdBy: String = "",
     val lastMessageText: String = "",
     val lastMessageSenderId: String = "",
-    val lastMessageType: String = "text", // "text", "sticker", "poll", "system"
+    val lastMessageType: String = "text", // "text", "sticker", "poll", "quiz", "flashcard", "system"
     @ServerTimestamp val lastMessageAt: Timestamp? = null,
     val disappearingHours: Long = 0L, // 0 = Off, 24 = 24h, 168 = 7d
+    @get:PropertyName("isStudyGroup") @field:PropertyName("isStudyGroup")
+    val isStudyGroup: Boolean = false,
+    @get:PropertyName("studyLockToAdmin") @field:PropertyName("studyLockToAdmin")
+    val studyLockToAdmin: Boolean = false,
+    val inviteCode: String = "",
     val typingUids: List<String> = emptyList(),
     val pinnedByUids: List<String> = emptyList(),
     val mutedByUids: List<String> = emptyList(),
@@ -171,11 +165,15 @@ data class ChatMessage(
     val senderId: String = "",
     val senderName: String = "",
     val text: String = "",
-    val messageType: String = "text", // "text", "sticker", "poll", "system"
+    val messageType: String = "text", // "text", "sticker", "poll", "quiz", "flashcard", "system"
     val stickerId: String? = null,
     val pollQuestion: String? = null,
     val pollOptions: List<String>? = null,
     val pollVotes: Map<String, Long>? = null,
+    val correctOptionIndex: Long? = null,
+    val quizExplanation: String? = null,
+    val flashcardFront: String? = null,
+    val flashcardBack: String? = null,
     val replyToMessageId: String? = null,
     val replyToSenderName: String? = null,
     val replyToPreview: String? = null,
@@ -215,14 +213,33 @@ data class StatusUpdate(
 )
 
 @IgnoreExtraProperties
-data class AdminAuditLog(
+data class StudyInvite(
     @DocumentId val id: String = "",
-    val adminUid: String = "",
-    val adminEmail: String = "",
-    val action: String = "",
-    val targetId: String = "",
+    val inviteCode: String = "",
+    val chatId: String = "",
+    val title: String = "",
+    val description: String = "",
+    val createdBy: String = "",
+    @get:PropertyName("isActive") @field:PropertyName("isActive")
+    val isActive: Boolean = true,
+    @ServerTimestamp val createdAt: Timestamp? = null,
+    @ServerTimestamp val updatedAt: Timestamp? = null
+)
+
+@IgnoreExtraProperties
+data class StudyItem(
+    @DocumentId val id: String = "",
+    val chatId: String = "",
+    val itemType: String = "note", // "note", "routine", "exam"
+    val title: String = "",
     val details: String = "",
-    @ServerTimestamp val createdAt: Timestamp? = null
+    val scheduleText: String = "",
+    val examDateEpochMs: Long = 0L,
+    val createdBy: String = "",
+    val createdByName: String = "",
+    val participantUids: List<String> = emptyList(),
+    @ServerTimestamp val createdAt: Timestamp? = null,
+    @ServerTimestamp val updatedAt: Timestamp? = null
 )
 
 @IgnoreExtraProperties
@@ -248,13 +265,12 @@ data class RemoteVersionInfo(
 )
 
 object AlapConstants {
-    const val PRIMARY_ADMIN_EMAIL = "mourshedahmed00@gmail.com"
     const val CURRENT_APP_VERSION = "1.0.1"
     const val CURRENT_APP_VERSION_CODE = 2L
     const val PUBLIC_WEBSITE_URL = "https://alap-chat.netlify.app"
     const val UPDATE_PORTAL_URL = "https://alap-updates.netlify.app"
     const val UPDATE_VERSION_JSON_URL = "https://alap-updates.netlify.app/version.json"
-    val API_KEY_SCOPES = listOf("read_stats", "read_users", "manage_updates", "send_push")
+    val STUDY_POMODORO_PRESETS = listOf(15, 25, 45, 5)
     val QUICK_REACTIONS = listOf("👍", "❤️", "😂", "😮", "😢", "🙏")
     val AVATAR_KEYS = listOf(
         "avatar_emerald",

@@ -35,12 +35,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Storage
@@ -54,6 +54,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -85,6 +86,8 @@ import com.example.data.model.UserPrivateInfo
 import com.example.data.model.UserProfile
 import com.example.ui.components.AlapAvatar
 import com.example.ui.components.AlapDateFormatter
+import com.example.ui.components.StudentBadge
+import com.example.ui.components.TeacherBadge
 import com.example.ui.components.VerifiedBadge
 import com.example.util.NotificationHelper
 
@@ -95,18 +98,17 @@ fun SettingsScreen(
     myProfile: UserProfile?,
     myPrivateInfo: UserPrivateInfo?,
     currentEmail: String,
-    isAdmin: Boolean,
     notificationsEnabled: Boolean,
     floatingGlassEnabled: Boolean,
     screenSecurityEnabled: Boolean,
     hasAppLockPin: Boolean,
-    hasAdminPin: Boolean,
     localOnlyRelayMode: Boolean = true,
     localStoredMessageCount: Int = 0,
+    studyFocusMinutesTotal: Int = 0,
+    studySessionsCompleted: Int = 0,
     usersMap: Map<String, UserProfile>,
     starredCount: Int,
     onBack: () -> Unit,
-    onOpenAdminPanel: () -> Unit,
     onOpenStarredMessages: () -> Unit,
     onSaveProfileAndPrivacy: (
         displayName: String,
@@ -120,7 +122,13 @@ fun SettingsScreen(
         hideOnlineStatus: Boolean,
         hideAbout: Boolean,
         hideReadReceipts: Boolean,
-        isDiscoverable: Boolean
+        isDiscoverable: Boolean,
+        isStudent: Boolean,
+        studentClass: String,
+        studentSubject: String,
+        birthYear: Long,
+        accountType: String,
+        teacherSubject: String
     ) -> Unit,
     onNotificationsToggle: (Boolean) -> Unit,
     onFloatingGlassToggle: (Boolean) -> Unit,
@@ -130,7 +138,6 @@ fun SettingsScreen(
     onRestoreBackup: (Uri) -> Unit = {},
     onRestoreAutoSnapshot: () -> Unit = {},
     onSetAppLockPin: (String) -> Unit,
-    onSetAdminPin: (String) -> Unit,
     onUnblockUser: (String) -> Unit,
     onSignOut: () -> Unit
 ) {
@@ -140,7 +147,6 @@ fun SettingsScreen(
     var activeSection by remember { mutableStateOf<SettingsSection?>(null) }
     var showEditProfile by remember { mutableStateOf(false) }
     var showAppPinDialog by remember { mutableStateOf(false) }
-    var showAdminPinDialog by remember { mutableStateOf(false) }
     var showBlockedUsersDialog by remember { mutableStateOf(false) }
     var hasOverlayPermission by remember { mutableStateOf(NotificationHelper.hasOverlayPermission(context)) }
 
@@ -192,7 +198,13 @@ fun SettingsScreen(
             pHideOnline,
             pHideAbout,
             pHideReceipts,
-            pDiscoverable
+            pDiscoverable,
+            myProfile?.isStudent ?: false,
+            myProfile?.studentClass ?: "",
+            myProfile?.studentSubject ?: "",
+            myPrivateInfo?.birthYear ?: 0L,
+            myProfile?.accountType ?: "personal",
+            myProfile?.teacherSubject ?: ""
         )
     }
 
@@ -240,7 +252,6 @@ fun SettingsScreen(
                     SettingsHubContent(
                         myProfile = myProfile,
                         hideOnline = hideOnline,
-                        isAdmin = isAdmin,
                         blockedCount = blockedUids.size,
                         hasAppLockPin = hasAppLockPin,
                         screenSecurityEnabled = screenSecurityEnabled,
@@ -249,8 +260,9 @@ fun SettingsScreen(
                         starredCount = starredCount,
                         localOnlyRelayMode = localOnlyRelayMode,
                         localStoredMessageCount = localStoredMessageCount,
+                        studyFocusMinutesTotal = studyFocusMinutesTotal,
+                        studySessionsCompleted = studySessionsCompleted,
                         onEditProfile = { showEditProfile = true },
-                        onOpenAdminPanel = onOpenAdminPanel,
                         onOpenSection = { activeSection = it },
                         onOpenStarredMessages = onOpenStarredMessages,
                         onSignOut = onSignOut
@@ -279,12 +291,9 @@ fun SettingsScreen(
                 )
 
                 SettingsSection.SECURITY -> SecuritySettingsSection(
-                    isAdmin = isAdmin,
                     hasAppLockPin = hasAppLockPin,
-                    hasAdminPin = hasAdminPin,
                     screenSecurityEnabled = screenSecurityEnabled,
                     onOpenAppPinDialog = { showAppPinDialog = true },
-                    onOpenAdminPinDialog = { showAdminPinDialog = true },
                     onScreenSecurityToggle = onScreenSecurityToggle
                 )
 
@@ -311,12 +320,18 @@ fun SettingsScreen(
     }
 
     if (showEditProfile) {
+        val isLockedStudent = myProfile?.isLockedStudentAccount() == true
+        val isTeacherAccount = myProfile?.isTeacher == true || myProfile?.accountType == "teacher"
         var name by remember { mutableStateOf(myProfile?.displayName ?: "") }
         var handle by remember { mutableStateOf(myProfile?.handle ?: "") }
         var phone by remember { mutableStateOf(if (displayPhone == "Not added yet") "" else displayPhone) }
         var alapId by remember { mutableStateOf(displayAlapId) }
         var about by remember { mutableStateOf(myProfile?.about ?: "") }
         var avatarId by remember { mutableStateOf(myProfile?.avatarId ?: AlapConstants.AVATAR_KEYS.first()) }
+        var isStudent by remember { mutableStateOf(if (isLockedStudent) true else (myProfile?.isStudent ?: false)) }
+        var studentClass by remember { mutableStateOf(myProfile?.studentClass ?: "") }
+        var studentSubject by remember { mutableStateOf(myProfile?.studentSubject ?: "") }
+        var teacherSubject by remember { mutableStateOf(myProfile?.teacherSubject ?: "") }
 
         AlertDialog(
             onDismissRequest = { showEditProfile = false },
@@ -365,6 +380,62 @@ fun SettingsScreen(
                         maxLines = 2,
                         modifier = Modifier.fillMaxWidth()
                     )
+                    if (isTeacherAccount) {
+                        HorizontalDivider()
+                        OutlinedTextField(
+                            value = teacherSubject,
+                            onValueChange = { if (it.length <= 80) teacherSubject = it },
+                            label = { Text("Teacher Subject / Specialty") },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("edit_teacher_subject_input")
+                        )
+                    }
+                    HorizontalDivider()
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (isLockedStudent) "Student Mode (ST Locked)" else "Student Mode (ST Badge)",
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                            Text(
+                                text = if (isLockedStudent) {
+                                    "Locked Student Account: cannot switch to Personal mode"
+                                } else {
+                                    "Show ST badge & academic batch/subjects"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (isLockedStudent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = if (isLockedStudent) true else isStudent,
+                            enabled = !isLockedStudent,
+                            onCheckedChange = { if (!isLockedStudent) isStudent = it },
+                            modifier = Modifier.testTag("edit_student_switch")
+                        )
+                    }
+                    if (isStudent || isLockedStudent) {
+                        OutlinedTextField(
+                            value = studentClass,
+                            onValueChange = { if (it.length <= 40) studentClass = it },
+                            label = { Text("Class / Batch (e.g. HSC-26)") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = studentSubject,
+                            onValueChange = { if (it.length <= 80) studentSubject = it },
+                            label = { Text("Focus Subjects (e.g. Physics, Math)") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                     Text("Avatar Accent", style = MaterialTheme.typography.labelMedium)
                     Row(
                         modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -403,7 +474,13 @@ fun SettingsScreen(
                             hideOnline,
                             hideAbout,
                             hideReadReceipts,
-                            isDiscoverable
+                            isDiscoverable,
+                            if (isLockedStudent) true else isStudent,
+                            studentClass,
+                            studentSubject,
+                            myPrivateInfo?.birthYear ?: 0L,
+                            myProfile?.accountType ?: "personal",
+                            teacherSubject
                         )
                         showEditProfile = false
                     },
@@ -425,19 +502,6 @@ fun SettingsScreen(
             onSave = { pin ->
                 onSetAppLockPin(pin)
                 showAppPinDialog = false
-            }
-        )
-    }
-
-    if (showAdminPinDialog) {
-        PinSetupDialog(
-            title = "Admin 2-Layer PIN",
-            subtitle = "Extra PIN required before entering the Admin Console.",
-            hasExisting = hasAdminPin,
-            onDismiss = { showAdminPinDialog = false },
-            onSave = { pin ->
-                onSetAdminPin(pin)
-                showAdminPinDialog = false
             }
         )
     }
@@ -486,7 +550,6 @@ fun SettingsScreen(
 private fun SettingsHubContent(
     myProfile: UserProfile?,
     hideOnline: Boolean,
-    isAdmin: Boolean,
     blockedCount: Int,
     hasAppLockPin: Boolean,
     screenSecurityEnabled: Boolean,
@@ -495,8 +558,9 @@ private fun SettingsHubContent(
     starredCount: Int,
     localOnlyRelayMode: Boolean,
     localStoredMessageCount: Int,
+    studyFocusMinutesTotal: Int,
+    studySessionsCompleted: Int,
     onEditProfile: () -> Unit,
-    onOpenAdminPanel: () -> Unit,
     onOpenSection: (SettingsSection) -> Unit,
     onOpenStarredMessages: () -> Unit,
     onSignOut: () -> Unit
@@ -542,9 +606,32 @@ private fun SettingsHubContent(
                             Spacer(modifier = Modifier.width(5.dp))
                             VerifiedBadge()
                         }
+                        if (myProfile?.isTeacher == true) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            TeacherBadge()
+                        }
+                        if (myProfile?.isStudent == true) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            StudentBadge()
+                        }
                     }
                     Text(
-                        text = "@${myProfile?.handle ?: "alap"}",
+                        text = buildString {
+                            append("@${myProfile?.handle ?: "alap"}")
+                            append(" • ")
+                            append(
+                                when {
+                                    myProfile?.isTeacher == true -> "Verified Teacher"
+                                    myProfile?.isLockedStudentAccount() == true -> "Student Account (Locked)"
+                                    else -> "Personal Account (18+)"
+                                }
+                            )
+                            if (myProfile?.isTeacher == true && myProfile.teacherSubject.isNotBlank()) {
+                                append(" • ${myProfile.teacherSubject}")
+                            } else if (myProfile?.isStudent == true && myProfile.studentClass.isNotBlank()) {
+                                append(" • ${myProfile.studentClass}")
+                            }
+                        },
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -569,54 +656,42 @@ private fun SettingsHubContent(
                 }
             }
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
-
-            if (isAdmin) {
-                Row(
+            if (myProfile?.isStudent == true || studyFocusMinutesTotal > 0) {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f))
-                        .clickable(onClick = onOpenAdminPanel)
-                        .padding(horizontal = 16.dp, vertical = 14.dp)
-                        .testTag("open_admin_panel_button"),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary),
-                        contentAlignment = Alignment.Center
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.AdminPanelSettings,
-                            contentDescription = "Admin Panel",
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp)
+                            imageVector = Icons.Filled.School,
+                            contentDescription = "Student stats",
+                            tint = MaterialTheme.colorScheme.primary
                         )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Student Focus Progress (Offline)",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = "$studyFocusMinutesTotal focus mins • $studySessionsCompleted session(s) completed",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
                     }
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Admin Console",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = "Users, moderation reports, logs & live controls",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
                 }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
             }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
 
             // Organized WhatsApp-style Sections
             SettingsHubRow(

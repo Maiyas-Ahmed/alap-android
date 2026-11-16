@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.outlined.Chat
-import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DonutLarge
 import androidx.compose.material.icons.filled.Group
@@ -97,7 +96,6 @@ import com.example.service.GlassOverlayService
 import com.example.ui.components.GlassNotificationBanner
 import com.example.ui.components.InAppGlassBannerData
 import com.example.ui.components.OfflineAndMaintenanceStrip
-import com.example.ui.screens.AdminPanelScreen
 import com.example.ui.screens.AppLockScreen
 import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.ChatDetailScreen
@@ -110,11 +108,9 @@ import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.StarredMessagesScreen
 import com.example.ui.screens.UpdatesTabScreen
 import com.example.ui.theme.AlapTheme
-import com.example.ui.viewmodel.AdminViewModel
 import com.example.ui.viewmodel.AlapViewModel
 import com.example.ui.viewmodel.ChatDetailViewModel
 import com.example.util.ApkUpdateManager
-import com.example.util.BiometricHelper
 import com.example.util.NetworkMonitor
 import com.example.util.NotificationHelper
 import com.example.util.UpdateDownloadState
@@ -128,7 +124,6 @@ private object AlapRoutes {
     const val CHAT = "chat/{chatId}"
     const val SETTINGS = "settings"
     const val STARRED = "starred"
-    const val ADMIN = "admin"
 
     fun chatRoute(chatId: String) = "chat/$chatId"
 }
@@ -238,7 +233,6 @@ private fun AuthenticatedAlapShell(
     val myProfileState by mainViewModel.myProfileState.collectAsStateWithLifecycle()
     val myProfile by mainViewModel.myProfile.collectAsStateWithLifecycle()
     val myPrivateInfo by mainViewModel.myPrivateInfo.collectAsStateWithLifecycle()
-    val isAdmin by mainViewModel.isAdmin.collectAsStateWithLifecycle()
     val isOnline by mainViewModel.isOnline.collectAsStateWithLifecycle()
     val appConfig by mainViewModel.appConfig.collectAsStateWithLifecycle()
     val remoteVersionInfo by mainViewModel.remoteVersionInfo.collectAsStateWithLifecycle()
@@ -253,7 +247,8 @@ private fun AuthenticatedAlapShell(
     val localOnlyRelayMode by mainViewModel.localOnlyRelayMode.collectAsStateWithLifecycle()
     val localStoredMessageCount by mainViewModel.localStoredMessageCount.collectAsStateWithLifecycle()
     val appLockPinHash by mainViewModel.appLockPinHash.collectAsStateWithLifecycle()
-    val adminPinHash by mainViewModel.adminPinHash.collectAsStateWithLifecycle()
+    val studyFocusMinutesTotal by mainViewModel.studyFocusMinutesTotal.collectAsStateWithLifecycle()
+    val studySessionsCompleted by mainViewModel.studySessionsCompleted.collectAsStateWithLifecycle()
     val chatsState by mainViewModel.myChats.collectAsStateWithLifecycle()
     val usersState by mainViewModel.discoverableUsers.collectAsStateWithLifecycle()
     val statusesState by mainViewModel.statuses.collectAsStateWithLifecycle()
@@ -288,7 +283,6 @@ private fun AuthenticatedAlapShell(
         (remoteInfo?.forceUpdateRequired == true)
 
     var isAppUnlocked by remember(uid) { mutableStateOf(false) }
-    var isAdminUnlocked by remember(uid) { mutableStateOf(false) }
     var inAppBanner by remember { mutableStateOf<InAppGlassBannerData?>(null) }
 
     LaunchedEffect(screenSecurityEnabled) {
@@ -338,7 +332,7 @@ private fun AuthenticatedAlapShell(
     }
 
     // Gate 2: Suspended user guard
-    if (myProfile?.isSuspended == true && !isAdmin) {
+    if (myProfile?.isSuspended == true) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -368,7 +362,6 @@ private fun AuthenticatedAlapShell(
 
     // Gate 3: Force App Update Gate with Direct One-Tap APK Installer
     val needsForceUpdate = effectiveForceUpdate &&
-        !isAdmin &&
         (WebsiteUpdateChecker.isVersionLower(AlapConstants.CURRENT_APP_VERSION, effectiveLatestVersionName) ||
             AlapConstants.CURRENT_APP_VERSION_CODE < effectiveLatestVersionCode)
     if (needsForceUpdate) {
@@ -497,7 +490,7 @@ private fun AuthenticatedAlapShell(
                     existingProfile = loadedProfile,
                     existingPrivateInfo = myPrivateInfo,
                     isSaving = profileSaving,
-                    onSaveProfileAndPrivacy = { name, handle, phone, alapId, about, avatarId, hidePhone, hideUserId, hideOnline, hideAbout, hideReceipts, discoverable ->
+                    onSaveProfileAndPrivacy = { name, handle, phone, alapId, about, avatarId, hidePhone, hideUserId, hideOnline, hideAbout, hideReceipts, discoverable, isStudent, studentClass, studentSubject, birthYear, accountType, teacherSubject ->
                         mainViewModel.saveProfileAndPrivacy(
                             displayName = name,
                             handle = handle,
@@ -511,6 +504,12 @@ private fun AuthenticatedAlapShell(
                             hideAbout = hideAbout,
                             hideReadReceipts = hideReceipts,
                             isDiscoverable = discoverable,
+                            isStudent = isStudent,
+                            studentClass = studentClass,
+                            studentSubject = studentSubject,
+                            birthYear = birthYear,
+                            accountType = accountType,
+                            teacherSubject = teacherSubject,
                             markProfileCompleted = true
                         )
                     }
@@ -698,7 +697,6 @@ private fun AuthenticatedAlapShell(
                 HomeScaffoldScreen(
                     currentUserId = uid,
                     myProfile = myProfile,
-                    isAdmin = isAdmin,
                     isOnline = isOnline,
                     appConfig = appConfig,
                     latestApkUrl = effectiveLatestApkUrl,
@@ -721,8 +719,13 @@ private fun AuthenticatedAlapShell(
                             navController.navigate(AlapRoutes.chatRoute(chatId))
                         }
                     },
-                    onCreateGroup = { title, desc, memberUids ->
-                        mainViewModel.createGroupChat(title, desc, memberUids) { chatId ->
+                    onCreateGroup = { title, desc, memberUids, isStudyGroup, studyLockToAdmin ->
+                        mainViewModel.createGroupChat(title, desc, memberUids, isStudyGroup, studyLockToAdmin) { chatId ->
+                            navController.navigate(AlapRoutes.chatRoute(chatId))
+                        }
+                    },
+                    onJoinStudyCode = { code ->
+                        mainViewModel.joinGroupByStudyCode(code) { chatId ->
                             navController.navigate(AlapRoutes.chatRoute(chatId))
                         }
                     },
@@ -734,10 +737,7 @@ private fun AuthenticatedAlapShell(
                     onDeleteStatus = mainViewModel::deleteStatus,
                     onDismissAnnouncement = mainViewModel::dismissAnnouncement,
                     onOpenSettings = { navController.navigate(AlapRoutes.SETTINGS) },
-                    onOpenStarred = { navController.navigate(AlapRoutes.STARRED) },
-                    onOpenAdmin = {
-                        if (isAdmin) navController.navigate(AlapRoutes.ADMIN)
-                    }
+                    onOpenStarred = { navController.navigate(AlapRoutes.STARRED) }
                 )
             }
 
@@ -766,12 +766,14 @@ private fun AuthenticatedAlapShell(
                 )
                 val chat by chatDetailVm.chat.collectAsStateWithLifecycle()
                 val messagesState by chatDetailVm.messages.collectAsStateWithLifecycle()
+                val studyItems by chatDetailVm.studyItems.collectAsStateWithLifecycle()
                 val draftText by chatDetailVm.draftText.collectAsStateWithLifecycle()
                 val errorBanner by chatDetailVm.errorBanner.collectAsStateWithLifecycle()
+                val senderName = myProfile?.displayName ?: displayName
 
                 ChatDetailScreen(
                     currentUserId = uid,
-                    currentUserName = myProfile?.displayName ?: displayName,
+                    currentUserName = senderName,
                     chat = chat,
                     messagesState = messagesState,
                     draftText = draftText,
@@ -781,26 +783,44 @@ private fun AuthenticatedAlapShell(
                     isOnline = isOnline,
                     hideReadReceipts = myProfile?.hideReadReceipts ?: false,
                     blockedUids = blockedUids,
+                    studyItems = studyItems,
+                    studyFocusMinutesTotal = studyFocusMinutesTotal,
+                    studySessionsCompleted = studySessionsCompleted,
                     errorBanner = errorBanner,
                     onBack = { navController.popBackStack() },
                     onDraftChanged = chatDetailVm::onDraftChanged,
                     onSendText = { replyTo ->
-                        chatDetailVm.sendTextMessage(myProfile?.displayName ?: displayName, replyTo)
+                        chatDetailVm.sendTextMessage(senderName, replyTo)
                     },
                     onSendSticker = { stickerId, label, replyTo ->
-                        chatDetailVm.sendStickerMessage(myProfile?.displayName ?: displayName, stickerId, label, replyTo)
+                        chatDetailVm.sendStickerMessage(senderName, stickerId, label, replyTo)
                     },
                     onSendPoll = { q, opts ->
-                        chatDetailVm.sendPollMessage(myProfile?.displayName ?: displayName, q, opts)
+                        chatDetailVm.sendPollMessage(senderName, q, opts)
+                    },
+                    onSendQuiz = { q, opts, correctIdx, explanation ->
+                        chatDetailVm.sendQuizMessage(senderName, q, opts, correctIdx, explanation)
+                    },
+                    onSendFlashcard = { front, back ->
+                        chatDetailVm.sendFlashcardMessage(senderName, front, back)
                     },
                     onVotePoll = chatDetailVm::voteInPoll,
+                    onAddStudyItem = { itemType, title, details, scheduleText, examEpoch ->
+                        chatDetailVm.addStudyItem(itemType, title, details, scheduleText, examEpoch, senderName)
+                    },
+                    onDeleteStudyItem = chatDetailVm::deleteStudyItem,
+                    onEnableStudyInvite = { chatDetailVm.enableStudyInvite() },
+                    onCompleteStudySession = mainViewModel::recordStudySession,
+                    onShareStudySession = { mins ->
+                        chatDetailVm.shareStudySessionMessage(senderName, mins)
+                    },
                     onSetDisappearingHours = chatDetailVm::setDisappearingHours,
                     onToggleBlockUser = mainViewModel::toggleBlockUser,
                     onReportUser = { targetUid, targetName, reason ->
                         mainViewModel.submitReport(targetUid, targetName, chatId, reason)
                     },
                     onForwardMessage = { targetChat, orig ->
-                        chatDetailVm.forwardMessage(targetChat, myProfile?.displayName ?: displayName, orig)
+                        chatDetailVm.forwardMessage(targetChat, senderName, orig)
                     },
                     onToggleReaction = chatDetailVm::toggleReaction,
                     onToggleStar = chatDetailVm::toggleStar,
@@ -809,6 +829,7 @@ private fun AuthenticatedAlapShell(
                     onMarkRead = chatDetailVm::markVisibleMessagesRead,
                     onUpdateGroup = chatDetailVm::updateGroupInfo,
                     onAddGroupMember = chatDetailVm::addGroupMember,
+                    onToggleStudyLock = { chatDetailVm.toggleStudyGroupLock() },
                     onLeaveGroup = {
                         chatDetailVm.leaveGroup { navController.popBackStack() }
                     },
@@ -822,22 +843,19 @@ private fun AuthenticatedAlapShell(
                     myProfile = myProfile,
                     myPrivateInfo = myPrivateInfo,
                     currentEmail = email,
-                    isAdmin = isAdmin,
                     notificationsEnabled = notificationsEnabled,
                     floatingGlassEnabled = floatingGlassEnabled,
                     screenSecurityEnabled = screenSecurityEnabled,
                     hasAppLockPin = appLockPinHash.isNotBlank(),
-                    hasAdminPin = adminPinHash.isNotBlank(),
                     localOnlyRelayMode = localOnlyRelayMode,
                     localStoredMessageCount = localStoredMessageCount,
+                    studyFocusMinutesTotal = studyFocusMinutesTotal,
+                    studySessionsCompleted = studySessionsCompleted,
                     usersMap = usersMap,
                     starredCount = starredMessages.size,
                     onBack = { navController.popBackStack() },
-                    onOpenAdminPanel = {
-                        if (isAdmin) navController.navigate(AlapRoutes.ADMIN)
-                    },
                     onOpenStarredMessages = { navController.navigate(AlapRoutes.STARRED) },
-                    onSaveProfileAndPrivacy = { name, handle, phone, alapId, about, avatarId, hidePhone, hideUserId, hideOnline, hideAbout, hideReceipts, discoverable ->
+                    onSaveProfileAndPrivacy = { name, handle, phone, alapId, about, avatarId, hidePhone, hideUserId, hideOnline, hideAbout, hideReceipts, discoverable, isStudent, studentClass, studentSubject, birthYear, accountType, teacherSubject ->
                         mainViewModel.saveProfileAndPrivacy(
                             displayName = name,
                             handle = handle,
@@ -851,6 +869,12 @@ private fun AuthenticatedAlapShell(
                             hideAbout = hideAbout,
                             hideReadReceipts = hideReceipts,
                             isDiscoverable = discoverable,
+                            isStudent = isStudent,
+                            studentClass = studentClass,
+                            studentSubject = studentSubject,
+                            birthYear = birthYear,
+                            accountType = accountType,
+                            teacherSubject = teacherSubject,
                             markProfileCompleted = true
                         )
                     },
@@ -862,7 +886,6 @@ private fun AuthenticatedAlapShell(
                     onRestoreBackup = mainViewModel::restoreLocalBackupFromUri,
                     onRestoreAutoSnapshot = mainViewModel::restoreAutoSnapshot,
                     onSetAppLockPin = mainViewModel::setAppLockPin,
-                    onSetAdminPin = mainViewModel::setAdminPin,
                     onUnblockUser = mainViewModel::toggleBlockUser,
                     onSignOut = {
                         mainViewModel.setOnlineStatus(false)
@@ -879,72 +902,6 @@ private fun AuthenticatedAlapShell(
                     onBack = { navController.popBackStack() },
                     onOpenChat = { chatId -> navController.navigate(AlapRoutes.chatRoute(chatId)) }
                 )
-            }
-
-            composable(AlapRoutes.ADMIN) {
-                if (!isAdmin) {
-                    LaunchedEffect(Unit) { navController.popBackStack() }
-                } else if (!isAdminUnlocked && (adminPinHash.isNotBlank() || BiometricHelper.canUseBiometrics(context))) {
-                    AppLockScreen(
-                        title = "Admin 2-Layer Verification",
-                        subtitle = "Verify with your Admin PIN or device fingerprint to open the Admin Console.",
-                        hasPinConfigured = adminPinHash.isNotBlank(),
-                        onVerifyPin = mainViewModel::verifyAdminPin,
-                        onUnlocked = { isAdminUnlocked = true },
-                        onCancel = { navController.popBackStack() }
-                    )
-                } else {
-                    val adminVm: AdminViewModel = viewModel(
-                        key = "admin_$uid",
-                        factory = viewModelFactory {
-                            initializer {
-                                val app = checkNotNull(this[APPLICATION_KEY]) as Application
-                                val db = AlapFirestoreProvider.getDatabase(app)
-                                AdminViewModel(AlapRepository(db))
-                            }
-                        }
-                    )
-                    val adminUsers by adminVm.allUsers.collectAsStateWithLifecycle()
-                    val adminChats by adminVm.allChats.collectAsStateWithLifecycle()
-                    val adminAnnouncements by adminVm.allAnnouncements.collectAsStateWithLifecycle()
-                    val adminsList by adminVm.admins.collectAsStateWithLifecycle()
-                    val auditLogs by adminVm.auditLogs.collectAsStateWithLifecycle()
-                    val reports by adminVm.reports.collectAsStateWithLifecycle()
-                    val apiKeys by adminVm.apiKeys.collectAsStateWithLifecycle()
-                    val adminConfig by adminVm.appConfig.collectAsStateWithLifecycle()
-                    val userEmails by adminVm.userEmails.collectAsStateWithLifecycle()
-                    val feedback by adminVm.statusFeedback.collectAsStateWithLifecycle()
-
-                    AdminPanelScreen(
-                        currentUserEmail = email,
-                        usersState = adminUsers,
-                        allChats = adminChats,
-                        announcements = adminAnnouncements,
-                        admins = adminsList,
-                        auditLogs = auditLogs,
-                        reports = reports,
-                        apiKeys = apiKeys,
-                        appConfig = adminConfig,
-                        userEmails = userEmails,
-                        feedbackMessage = feedback,
-                        onBack = { navController.popBackStack() },
-                        onClearFeedback = adminVm::clearFeedback,
-                        onPublishAnnouncement = { t, m, v, p -> adminVm.publishAnnouncement(t, m, v, p) },
-                        onToggleAnnouncementActive = adminVm::toggleAnnouncementActive,
-                        onDeleteAnnouncement = adminVm::deleteAnnouncement,
-                        onUpdateAppConfig = adminVm::updateAppConfig,
-                        onToggleUserVerified = adminVm::toggleUserVerified,
-                        onToggleUserSuspended = adminVm::toggleUserSuspended,
-                        onLoadUserEmail = adminVm::loadUserEmail,
-                        onGrantSecondaryAdmin = adminVm::grantSecondaryAdmin,
-                        onRevokeSecondaryAdmin = adminVm::revokeSecondaryAdmin,
-                        onUpdateReportStatus = adminVm::updateReportStatus,
-                        onCleanupExpiredStatuses = adminVm::cleanupExpiredStatuses,
-                        onCreateApiKey = adminVm::createApiKey,
-                        onToggleApiKeyActive = adminVm::toggleApiKeyActive,
-                        onDeleteApiKey = adminVm::deleteApiKey
-                    )
-                }
             }
         }
 
@@ -970,7 +927,6 @@ private fun AuthenticatedAlapShell(
 private fun HomeScaffoldScreen(
     currentUserId: String,
     myProfile: com.example.data.model.UserProfile?,
-    isAdmin: Boolean,
     isOnline: Boolean,
     appConfig: com.example.data.model.AppConfig,
     latestApkUrl: String,
@@ -989,7 +945,8 @@ private fun HomeScaffoldScreen(
     onClearActionMessage: () -> Unit,
     onOpenChat: (String) -> Unit,
     onStartDirectChat: (com.example.data.model.UserProfile) -> Unit,
-    onCreateGroup: (String, String, List<String>) -> Unit,
+    onCreateGroup: (String, String, List<String>, Boolean, Boolean) -> Unit,
+    onJoinStudyCode: (String) -> Unit,
     onTogglePin: (com.example.data.model.Chat) -> Unit,
     onToggleMute: (com.example.data.model.Chat) -> Unit,
     onToggleArchive: (com.example.data.model.Chat) -> Unit,
@@ -998,8 +955,7 @@ private fun HomeScaffoldScreen(
     onDeleteStatus: (String) -> Unit,
     onDismissAnnouncement: (String) -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenStarred: () -> Unit,
-    onOpenAdmin: () -> Unit
+    onOpenStarred: () -> Unit
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var showSearch by remember { mutableStateOf(false) }
@@ -1044,18 +1000,6 @@ private fun HomeScaffoldScreen(
                             )
                         },
                         actions = {
-                            if (isAdmin) {
-                                IconButton(
-                                    onClick = onOpenAdmin,
-                                    modifier = Modifier.testTag("topbar_admin_button")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.AdminPanelSettings,
-                                        contentDescription = "Admin Panel",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                            }
                             if (selectedTab != 1) {
                                 IconButton(
                                     onClick = { showSearch = !showSearch },
@@ -1076,16 +1020,6 @@ private fun HomeScaffoldScreen(
                                     onDismissRequest = { showMenu = false },
                                     containerColor = Color.White
                                 ) {
-                                    if (isAdmin) {
-                                        DropdownMenuItem(
-                                            text = { Text("Admin Console") },
-                                            leadingIcon = { Icon(Icons.Filled.AdminPanelSettings, contentDescription = null) },
-                                            onClick = {
-                                                showMenu = false
-                                                onOpenAdmin()
-                                            }
-                                        )
-                                    }
                                     DropdownMenuItem(
                                         text = { Text("Starred Messages") },
                                         leadingIcon = { Icon(Icons.Filled.Star, contentDescription = null) },
@@ -1295,7 +1229,8 @@ private fun HomeScaffoldScreen(
                                 allowGroupCreation = appConfig.allowGroupCreation,
                                 isReadOnlyMode = appConfig.isReadOnlyMode,
                                 onUserClick = onStartDirectChat,
-                                onCreateGroup = onCreateGroup
+                                onCreateGroup = onCreateGroup,
+                                onJoinStudyCode = onJoinStudyCode
                             )
                         }
                     }

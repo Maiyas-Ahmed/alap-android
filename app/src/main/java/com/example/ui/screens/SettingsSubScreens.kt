@@ -28,7 +28,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CloudDownload
@@ -387,12 +386,9 @@ internal fun PrivacySettingsSection(
 
 @Composable
 internal fun SecuritySettingsSection(
-    isAdmin: Boolean,
     hasAppLockPin: Boolean,
-    hasAdminPin: Boolean,
     screenSecurityEnabled: Boolean,
     onOpenAppPinDialog: () -> Unit,
-    onOpenAdminPinDialog: () -> Unit,
     onScreenSecurityToggle: (Boolean) -> Unit
 ) {
     SettingsSectionContainer {
@@ -425,39 +421,6 @@ internal fun SecuritySettingsSection(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary
                 )
-            }
-
-            if (isAdmin) {
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(onClick = onOpenAdminPinDialog)
-                        .padding(vertical = 6.dp)
-                        .testTag("admin_lock_pin_row"),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.AdminPanelSettings,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Admin 2-Layer Security Gate", style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            if (hasAdminPin) "Active • Extra PIN/Fingerprint before Admin Console" else "Uses device Fingerprint or set dedicated Admin PIN",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Text(
-                        text = if (hasAdminPin) "Change" else "Set PIN",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
             }
         }
 

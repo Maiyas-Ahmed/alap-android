@@ -69,6 +69,8 @@ import com.example.data.model.UiState
 import com.example.data.model.UserProfile
 import com.example.ui.components.AlapAvatar
 import com.example.ui.components.AlapDateFormatter
+import com.example.ui.components.StudentBadge
+import com.example.ui.components.TeacherBadge
 import com.example.ui.components.UpdateBannerCard
 import com.example.ui.components.VerifiedBadge
 import com.example.ui.theme.LocalAlapColors
@@ -78,6 +80,7 @@ enum class ChatFilter(val label: String) {
     ALL("All"),
     UNREAD("Unread"),
     GROUPS("Groups"),
+    STUDY("Study"),
     ARCHIVED("Archived")
 }
 
@@ -170,17 +173,18 @@ fun ChatsTabScreen(
                 val filteredChats = remember(chatsState.data, selectedFilter, searchQuery, usersMap) {
                     chatsState.data.filter { chat ->
                         val isArchived = chat.isArchivedBy(currentUserId)
+                        val otherUser = chat.otherParticipantUid(currentUserId)?.let { usersMap[it] }
                         val filterMatches = when (selectedFilter) {
                             ChatFilter.ALL -> !isArchived
                             ChatFilter.UNREAD -> !isArchived && chat.unreadCountFor(currentUserId) > 0
                             ChatFilter.GROUPS -> !isArchived && chat.chatType == "group"
+                            ChatFilter.STUDY -> !isArchived && (chat.isStudyGroup || otherUser?.isStudent == true)
                             ChatFilter.ARCHIVED -> isArchived
                         }
                         if (!filterMatches) return@filter false
                         if (searchQuery.isBlank()) return@filter true
 
                         val q = searchQuery.trim().lowercase()
-                        val otherUser = chat.otherParticipantUid(currentUserId)?.let { usersMap[it] }
                         val title = if (chat.chatType == "group") chat.title else otherUser?.displayName ?: "Alap User"
                         title.lowercase().contains(q) || chat.lastMessageText.lowercase().contains(q)
                     }
@@ -398,6 +402,17 @@ private fun ChatListRow(
                         Spacer(modifier = Modifier.width(4.dp))
                         VerifiedBadge()
                     }
+                    if (!isGroup && otherUser?.isTeacher == true) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        TeacherBadge()
+                    }
+                    if (!isGroup && otherUser?.isStudent == true) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        StudentBadge()
+                    } else if (isGroup && chat.isStudyGroup) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        StudentBadge(label = "STUDY")
+                    }
                     if (isBlocked) {
                         Spacer(modifier = Modifier.width(6.dp))
                         Surface(
@@ -532,6 +547,7 @@ private fun EmptyChatsState(
                 filter == ChatFilter.ARCHIVED -> "No archived chats"
                 filter == ChatFilter.UNREAD -> "All caught up!"
                 filter == ChatFilter.GROUPS -> "No group chats yet"
+                filter == ChatFilter.STUDY -> "No study chats yet"
                 else -> "Start your first Alap"
             },
             style = MaterialTheme.typography.titleLarge,

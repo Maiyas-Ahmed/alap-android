@@ -12,6 +12,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.example.data.model.Chat
 import com.example.data.model.ChatMessage
+import com.example.data.model.StudyItem
 import com.example.data.model.UiMessage
 import com.google.firebase.Timestamp
 import kotlinx.coroutines.flow.Flow
@@ -31,6 +32,10 @@ data class LocalMessageEntity(
     val pollQuestion: String?,
     val pollOptionsJson: String?,
     val pollVotesJson: String?,
+    val correctOptionIndex: Long?,
+    val quizExplanation: String?,
+    val flashcardFront: String?,
+    val flashcardBack: String?,
     val replyToMessageId: String?,
     val replyToSenderName: String?,
     val replyToPreview: String?,
@@ -60,10 +65,29 @@ data class LocalChatEntity(
     val lastMessageType: String,
     val lastMessageAtEpochMs: Long,
     val disappearingHours: Long,
+    val isStudyGroup: Boolean,
+    val studyLockToAdmin: Boolean = false,
+    val inviteCode: String,
     val pinnedByUidsJson: String,
     val mutedByUidsJson: String,
     val archivedByUidsJson: String,
     val unreadCountsJson: String,
+    val createdAtEpochMs: Long,
+    val updatedAtEpochMs: Long
+)
+
+@Entity(tableName = "local_study_items")
+data class LocalStudyItemEntity(
+    @PrimaryKey val id: String,
+    val chatId: String,
+    val itemType: String,
+    val title: String,
+    val details: String,
+    val scheduleText: String,
+    val examDateEpochMs: Long,
+    val createdBy: String,
+    val createdByName: String,
+    val participantUidsJson: String,
     val createdAtEpochMs: Long,
     val updatedAtEpochMs: Long
 )
@@ -91,6 +115,18 @@ interface AlapLocalDao {
     @Query("SELECT * FROM local_chats ORDER BY lastMessageAtEpochMs DESC")
     suspend fun getAllChatsSnapshot(): List<LocalChatEntity>
 
+    @Query("SELECT * FROM local_study_items WHERE chatId = :chatId ORDER BY updatedAtEpochMs DESC")
+    fun observeStudyItemsForChat(chatId: String): Flow<List<LocalStudyItemEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertStudyItems(items: List<LocalStudyItemEntity>)
+
+    @Query("SELECT * FROM local_study_items ORDER BY updatedAtEpochMs DESC")
+    suspend fun getAllStudyItemsSnapshot(): List<LocalStudyItemEntity>
+
+    @Query("DELETE FROM local_study_items WHERE id = :itemId")
+    suspend fun deleteStudyItemById(itemId: String)
+
     @Query("DELETE FROM local_messages WHERE chatId = :chatId")
     suspend fun deleteMessagesForChat(chatId: String)
 
@@ -99,11 +135,14 @@ interface AlapLocalDao {
 
     @Query("DELETE FROM local_chats")
     suspend fun clearAllChats()
+
+    @Query("DELETE FROM local_study_items")
+    suspend fun clearAllStudyItems()
 }
 
 @Database(
-    entities = [LocalMessageEntity::class, LocalChatEntity::class],
-    version = 1,
+    entities = [LocalMessageEntity::class, LocalChatEntity::class, LocalStudyItemEntity::class],
+    version = 3,
     exportSchema = false
 )
 abstract class AlapRoomDatabase : RoomDatabase() {
@@ -199,6 +238,10 @@ object LocalRoomMappers {
         pollQuestion = pollQuestion,
         pollOptionsJson = pollOptions?.let { stringListToJson(it) },
         pollVotesJson = pollVotes?.let { longMapToJson(it) },
+        correctOptionIndex = correctOptionIndex,
+        quizExplanation = quizExplanation,
+        flashcardFront = flashcardFront,
+        flashcardBack = flashcardBack,
         replyToMessageId = replyToMessageId,
         replyToSenderName = replyToSenderName,
         replyToPreview = replyToPreview,
@@ -225,6 +268,10 @@ object LocalRoomMappers {
             pollQuestion = pollQuestion,
             pollOptions = pollOptionsJson?.let { jsonToStringList(it) },
             pollVotes = pollVotesJson?.let { jsonToLongMap(it) },
+            correctOptionIndex = correctOptionIndex,
+            quizExplanation = quizExplanation,
+            flashcardFront = flashcardFront,
+            flashcardBack = flashcardBack,
             replyToMessageId = replyToMessageId,
             replyToSenderName = replyToSenderName,
             replyToPreview = replyToPreview,
@@ -255,6 +302,9 @@ object LocalRoomMappers {
         lastMessageType = lastMessageType,
         lastMessageAtEpochMs = lastMessageAt?.toDate()?.time ?: System.currentTimeMillis(),
         disappearingHours = disappearingHours,
+        isStudyGroup = isStudyGroup,
+        studyLockToAdmin = studyLockToAdmin,
+        inviteCode = inviteCode,
         pinnedByUidsJson = stringListToJson(pinnedByUids),
         mutedByUidsJson = stringListToJson(mutedByUids),
         archivedByUidsJson = stringListToJson(archivedByUids),
@@ -277,11 +327,44 @@ object LocalRoomMappers {
         lastMessageType = lastMessageType,
         lastMessageAt = Timestamp(Date(lastMessageAtEpochMs)),
         disappearingHours = disappearingHours,
+        isStudyGroup = isStudyGroup,
+        studyLockToAdmin = studyLockToAdmin,
+        inviteCode = inviteCode,
         typingUids = emptyList(),
         pinnedByUids = jsonToStringList(pinnedByUidsJson),
         mutedByUids = jsonToStringList(mutedByUidsJson),
         archivedByUids = jsonToStringList(archivedByUidsJson),
         unreadCounts = jsonToLongMap(unreadCountsJson),
+        createdAt = Timestamp(Date(createdAtEpochMs)),
+        updatedAt = Timestamp(Date(updatedAtEpochMs))
+    )
+
+    fun StudyItem.toLocalEntity(): LocalStudyItemEntity = LocalStudyItemEntity(
+        id = id,
+        chatId = chatId,
+        itemType = itemType,
+        title = title,
+        details = details,
+        scheduleText = scheduleText,
+        examDateEpochMs = examDateEpochMs,
+        createdBy = createdBy,
+        createdByName = createdByName,
+        participantUidsJson = stringListToJson(participantUids),
+        createdAtEpochMs = createdAt?.toDate()?.time ?: System.currentTimeMillis(),
+        updatedAtEpochMs = updatedAt?.toDate()?.time ?: System.currentTimeMillis()
+    )
+
+    fun LocalStudyItemEntity.toStudyItem(): StudyItem = StudyItem(
+        id = id,
+        chatId = chatId,
+        itemType = itemType,
+        title = title,
+        details = details,
+        scheduleText = scheduleText,
+        examDateEpochMs = examDateEpochMs,
+        createdBy = createdBy,
+        createdByName = createdByName,
+        participantUids = jsonToStringList(participantUidsJson),
         createdAt = Timestamp(Date(createdAtEpochMs)),
         updatedAt = Timestamp(Date(updatedAtEpochMs))
     )

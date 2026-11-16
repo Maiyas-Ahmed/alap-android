@@ -540,3 +540,514 @@ test("Local-First Relay purge: delivered message cannot be deleted before read b
   // Recipient Bob can now purge the delivered relay message after persisting to Room
   await assertSucceeds(bobDb.collection("chats").doc(chatId).collection("messages").doc("relay_msg_1").delete());
 });
+
+test("Student profile fields: valid studentClass/studentSubject allowed; oversized fields rejected", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID, { email: "alice@gmail.com", email_verified: true }).firestore();
+  const profile = {
+    ...makeUserProfile(ALICE_UID, "Alice"),
+    isStudent: true,
+    studentClass: "HSC-26",
+    studentSubject: "Physics, Higher Math",
+  };
+  await assertSucceeds(aliceDb.collection("users").doc(ALICE_UID).set(profile));
+
+  // Valid update
+  await assertSucceeds(
+    aliceDb.collection("users").doc(ALICE_UID).update({
+      studentClass: "CSE 2nd Year",
+      studentSubject: "Algorithms, OS",
+      updatedAt: nowTs(),
+    })
+  );
+
+  // Oversized studentClass (>40 chars) rejected
+  await assertFails(
+    aliceDb.collection("users").doc(ALICE_UID).update({
+      studentClass: "A".repeat(41),
+      updatedAt: nowTs(),
+    })
+  );
+});
+
+test("Quiz & Flashcard messages: participants can create and vote; outsiders blocked", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  const charlieDb = testEnv.authenticatedContext(CHARLIE_UID).firestore();
+  const ts = nowTs();
+  const chatId = "dm_study_quiz";
+
+  await assertSucceeds(
+    aliceDb.collection("chats").doc(chatId).set({
+      chatType: "direct",
+      title: "",
+      description: "",
+      avatarId: "avatar_1",
+      participantUids: [ALICE_UID, BOB_UID],
+      adminUids: [],
+      createdBy: ALICE_UID,
+      lastMessageText: "Study started",
+      lastMessageSenderId: ALICE_UID,
+      lastMessageType: "text",
+      lastMessageAt: ts,
+      typingUids: [],
+      pinnedByUids: [],
+      mutedByUids: [],
+      archivedByUids: [],
+      unreadCounts: {},
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+
+  await assertSucceeds(
+    aliceDb.collection("chats").doc(chatId).collection("messages").doc("quiz_1").set({
+      chatId,
+      senderId: ALICE_UID,
+      senderName: "Alice",
+      text: "Quiz: Speed of light in vacuum?",
+      messageType: "quiz",
+      pollQuestion: "Speed of light in vacuum?",
+      pollOptions: ["3 x 10^8 m/s", "3 x 10^6 m/s"],
+      pollVotes: {},
+      correctOptionIndex: 0,
+      quizExplanation: "c is approximately 300,000 km/s",
+      isForwarded: false,
+      isEdited: false,
+      isDeleted: false,
+      participantUids: [ALICE_UID, BOB_UID],
+      readByUids: [ALICE_UID],
+      starredByUids: [],
+      reactions: {},
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+
+  await assertSucceeds(
+    aliceDb.collection("chats").doc(chatId).collection("messages").doc("card_1").set({
+      chatId,
+      senderId: ALICE_UID,
+      senderName: "Alice",
+      text: "Flashcard: Newton's 2nd Law",
+      messageType: "flashcard",
+      flashcardFront: "State Newton's 2nd Law",
+      flashcardBack: "F = ma (Rate of change of momentum is proportional to applied force)",
+      isForwarded: false,
+      isEdited: false,
+      isDeleted: false,
+      participantUids: [ALICE_UID, BOB_UID],
+      readByUids: [ALICE_UID],
+      starredByUids: [],
+      reactions: {},
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+
+  // Bob votes on quiz
+  await assertSucceeds(
+    bobDb.collection("chats").doc(chatId).collection("messages").doc("quiz_1").update({
+      pollVotes: { [BOB_UID]: 0 },
+      updatedAt: nowTs(),
+    })
+  );
+
+  // Charlie cannot vote or read
+  await assertFails(
+    charlieDb.collection("chats").doc(chatId).collection("messages").doc("quiz_1").update({
+      pollVotes: { [CHARLIE_UID]: 1 },
+      updatedAt: nowTs(),
+    })
+  );
+});
+
+test("Study Group Invites: group admin creates invite code, outsider joins safely, non-admin spoof denied", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  const charlieDb = testEnv.authenticatedContext(CHARLIE_UID).firestore();
+  const ts = nowTs();
+  const chatId = "study_group_hsc";
+  const inviteCode = "HSC26A";
+
+  await assertSucceeds(
+    aliceDb.collection("chats").doc(chatId).set({
+      chatType: "group",
+      title: "HSC Physics Batch",
+      description: "Daily notes and quizzes",
+      avatarId: "group_default",
+      participantUids: [ALICE_UID, BOB_UID],
+      adminUids: [ALICE_UID],
+      createdBy: ALICE_UID,
+      lastMessageText: "Created group",
+      lastMessageSenderId: ALICE_UID,
+      lastMessageType: "system",
+      lastMessageAt: ts,
+      isStudyGroup: true,
+      inviteCode,
+      typingUids: [],
+      pinnedByUids: [],
+      mutedByUids: [],
+      archivedByUids: [],
+      unreadCounts: {},
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+
+  // Non-admin Bob cannot create a study invite for Alice's group
+  await assertFails(
+    bobDb.collection("study_invites").doc("FAKE99").set({
+      inviteCode: "FAKE99",
+      chatId,
+      title: "Fake Batch",
+      description: "",
+      createdBy: BOB_UID,
+      isActive: true,
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+
+  // Admin Alice creates valid study invite
+  await assertSucceeds(
+    aliceDb.collection("study_invites").doc(inviteCode).set({
+      inviteCode,
+      chatId,
+      title: "HSC Physics Batch",
+      description: "Daily notes and quizzes",
+      createdBy: ALICE_UID,
+      isActive: true,
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+
+  // Outsider Charlie can read invite code and join group
+  await assertSucceeds(charlieDb.collection("study_invites").doc(inviteCode).get());
+  await assertSucceeds(
+    charlieDb.collection("chats").doc(chatId).update({
+      participantUids: [ALICE_UID, BOB_UID, CHARLIE_UID],
+      updatedAt: nowTs(),
+    })
+  );
+});
+
+test("Group Study Board: participants create/read notes & exams, creator/admin deletes, outsider & unauthorized member denied", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  const charlieDb = testEnv.authenticatedContext(CHARLIE_UID).firestore();
+  const ts = nowTs();
+  const chatId = "study_board_chat";
+
+  await assertSucceeds(
+    aliceDb.collection("chats").doc(chatId).set({
+      chatType: "group",
+      title: "Math Study Group",
+      description: "",
+      avatarId: "group_default",
+      participantUids: [ALICE_UID, BOB_UID],
+      adminUids: [ALICE_UID],
+      createdBy: ALICE_UID,
+      lastMessageText: "Welcome",
+      lastMessageSenderId: ALICE_UID,
+      lastMessageType: "system",
+      lastMessageAt: ts,
+      isStudyGroup: true,
+      inviteCode: "MATH26",
+      typingUids: [],
+      pinnedByUids: [],
+      mutedByUids: [],
+      archivedByUids: [],
+      unreadCounts: {},
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+
+  // Alice adds an exam countdown item
+  await assertSucceeds(
+    aliceDb.collection("chats").doc(chatId).collection("study_items").doc("exam_1").set({
+      chatId,
+      itemType: "exam",
+      title: "Calculus Midterm",
+      details: "Chapters 1 to 4",
+      scheduleText: "10:00 AM Room 204",
+      examDateEpochMs: Date.now() + 86400000 * 5,
+      createdBy: ALICE_UID,
+      createdByName: "Alice",
+      participantUids: [ALICE_UID, BOB_UID],
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+
+  // Participant Bob can read and add a note
+  await assertSucceeds(bobDb.collection("chats").doc(chatId).collection("study_items").get());
+  await assertSucceeds(
+    bobDb.collection("chats").doc(chatId).collection("study_items").doc("note_1").set({
+      chatId,
+      itemType: "note",
+      title: "Integration Formulas",
+      details: "Remember by-parts rule",
+      scheduleText: "",
+      examDateEpochMs: 0,
+      createdBy: BOB_UID,
+      createdByName: "Bob",
+      participantUids: [ALICE_UID, BOB_UID],
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+
+  // Non-creator & non-admin Bob cannot delete Alice's exam item
+  await assertFails(bobDb.collection("chats").doc(chatId).collection("study_items").doc("exam_1").delete());
+
+  // Outsider Charlie cannot read or write study items
+  await assertFails(charlieDb.collection("chats").doc(chatId).collection("study_items").get());
+  await assertFails(
+    charlieDb.collection("chats").doc(chatId).collection("study_items").doc("intrude_1").set({
+      chatId,
+      itemType: "note",
+      title: "Spam",
+      details: "",
+      scheduleText: "",
+      examDateEpochMs: 0,
+      createdBy: CHARLIE_UID,
+      createdByName: "Charlie",
+      participantUids: [ALICE_UID, BOB_UID],
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+
+  // Group admin Alice can delete Bob's note, and creator Bob can delete own note if recreated
+  await assertSucceeds(aliceDb.collection("chats").doc(chatId).collection("study_items").doc("note_1").delete());
+});
+
+test("Account Roles & Age-Lock: student account locked from switching to personal; personal can toggle isStudent; only Admin grants Teacher", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID, { email: "alice@gmail.com", email_verified: true }).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID, { email: "bob@gmail.com", email_verified: true }).firestore();
+  const adminDb = testEnv.authenticatedContext(ADMIN_UID, { email: ADMIN_EMAIL, email_verified: true }).firestore();
+
+  // Regular user cannot self-grant isTeacher or accountType = 'teacher'
+  await assertFails(
+    aliceDb.collection("users").doc(ALICE_UID).set({
+      ...makeUserProfile(ALICE_UID, "Alice"),
+      accountType: "teacher",
+      isTeacher: true,
+    })
+  );
+
+  // Alice completes profile as a Locked Student Account
+  await assertSucceeds(
+    aliceDb.collection("users").doc(ALICE_UID).set({
+      ...makeUserProfile(ALICE_UID, "Alice Student"),
+      accountType: "student",
+      isStudent: true,
+      isTeacher: false,
+      teacherSubject: "",
+    })
+  );
+
+  // Alice cannot switch locked student account back to 'personal' or turn off isStudent
+  await assertFails(
+    aliceDb.collection("users").doc(ALICE_UID).update({
+      accountType: "personal",
+      isStudent: false,
+      updatedAt: nowTs(),
+    })
+  );
+  await assertFails(
+    aliceDb.collection("users").doc(ALICE_UID).update({
+      isStudent: false,
+      updatedAt: nowTs(),
+    })
+  );
+
+  // Alice cannot self-promote to teacher on update either
+  await assertFails(
+    aliceDb.collection("users").doc(ALICE_UID).update({
+      isTeacher: true,
+      accountType: "teacher",
+      updatedAt: nowTs(),
+    })
+  );
+
+  // Verified Admin CAN grant Teacher badge and status
+  await assertSucceeds(
+    adminDb.collection("users").doc(ALICE_UID).update({
+      isTeacher: true,
+      accountType: "teacher",
+      teacherSubject: "Higher Math",
+      updatedAt: nowTs(),
+    })
+  );
+
+  // Adult Bob creates a Personal account and can freely toggle isStudent ON and OFF
+  await assertSucceeds(
+    bobDb.collection("users").doc(BOB_UID).set({
+      ...makeUserProfile(BOB_UID, "Bob Personal"),
+      accountType: "personal",
+      isStudent: false,
+      isTeacher: false,
+      teacherSubject: "",
+    })
+  );
+  await assertSucceeds(bobDb.collection("users").doc(BOB_UID).update({ isStudent: true, updatedAt: nowTs() }));
+  await assertSucceeds(bobDb.collection("users").doc(BOB_UID).update({ isStudent: false, updatedAt: nowTs() }));
+});
+
+test("Group studyLockToAdmin: blocks non-admin from adding study_items, quizzes, or flashcards when locked; allows Group Admin", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  const ts = nowTs();
+  const chatId = "locked_study_group";
+
+  await assertSucceeds(
+    aliceDb.collection("chats").doc(chatId).set({
+      chatType: "group",
+      title: "Teacher Physics Class",
+      description: "Admin locked class",
+      avatarId: "group_default",
+      participantUids: [ALICE_UID, BOB_UID],
+      adminUids: [ALICE_UID],
+      createdBy: ALICE_UID,
+      lastMessageText: "Class opened",
+      lastMessageSenderId: ALICE_UID,
+      lastMessageType: "system",
+      lastMessageAt: ts,
+      isStudyGroup: true,
+      studyLockToAdmin: true,
+      inviteCode: "PHY101",
+      typingUids: [],
+      pinnedByUids: [],
+      mutedByUids: [],
+      archivedByUids: [],
+      unreadCounts: {},
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+
+  // Non-admin student Bob CANNOT add study_items, quiz, or flashcard
+  await assertFails(
+    bobDb.collection("chats").doc(chatId).collection("study_items").doc("bob_note").set({
+      chatId,
+      itemType: "note",
+      title: "Unauthorized note",
+      details: "",
+      scheduleText: "",
+      examDateEpochMs: 0,
+      createdBy: BOB_UID,
+      createdByName: "Bob",
+      participantUids: [ALICE_UID, BOB_UID],
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+  await assertFails(
+    bobDb.collection("chats").doc(chatId).collection("messages").doc("bob_quiz").set({
+      chatId,
+      senderId: BOB_UID,
+      senderName: "Bob",
+      text: "Quiz attempt",
+      messageType: "quiz",
+      pollQuestion: "Q?",
+      pollOptions: ["A", "B"],
+      pollVotes: {},
+      correctOptionIndex: 0,
+      quizExplanation: "",
+      isForwarded: false,
+      isEdited: false,
+      isDeleted: false,
+      participantUids: [ALICE_UID, BOB_UID],
+      readByUids: [BOB_UID],
+      starredByUids: [],
+      reactions: {},
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+  await assertFails(
+    bobDb.collection("chats").doc(chatId).collection("messages").doc("bob_card").set({
+      chatId,
+      senderId: BOB_UID,
+      senderName: "Bob",
+      text: "Flashcard attempt",
+      messageType: "flashcard",
+      flashcardFront: "Front",
+      flashcardBack: "Back",
+      isForwarded: false,
+      isEdited: false,
+      isDeleted: false,
+      participantUids: [ALICE_UID, BOB_UID],
+      readByUids: [BOB_UID],
+      starredByUids: [],
+      reactions: {},
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+
+  // Non-admin Bob CAN still send normal chat messages
+  await assertSucceeds(
+    bobDb.collection("chats").doc(chatId).collection("messages").doc("bob_text").set({
+      chatId,
+      senderId: BOB_UID,
+      senderName: "Bob",
+      text: "Sir, when is the next test?",
+      messageType: "text",
+      isForwarded: false,
+      isEdited: false,
+      isDeleted: false,
+      participantUids: [ALICE_UID, BOB_UID],
+      readByUids: [BOB_UID],
+      starredByUids: [],
+      reactions: {},
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+
+  // Group Admin Alice CAN add study_items and post quiz
+  await assertSucceeds(
+    aliceDb.collection("chats").doc(chatId).collection("study_items").doc("teacher_note").set({
+      chatId,
+      itemType: "note",
+      title: "Chapter 1 Formulas",
+      details: "Official notes",
+      scheduleText: "",
+      examDateEpochMs: 0,
+      createdBy: ALICE_UID,
+      createdByName: "Alice",
+      participantUids: [ALICE_UID, BOB_UID],
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+  await assertSucceeds(
+    aliceDb.collection("chats").doc(chatId).collection("messages").doc("teacher_quiz").set({
+      chatId,
+      senderId: ALICE_UID,
+      senderName: "Alice",
+      text: "Quiz: G?",
+      messageType: "quiz",
+      pollQuestion: "Value of g?",
+      pollOptions: ["9.8 m/s^2", "10.8 m/s^2"],
+      pollVotes: {},
+      correctOptionIndex: 0,
+      quizExplanation: "Standard gravity",
+      isForwarded: false,
+      isEdited: false,
+      isDeleted: false,
+      participantUids: [ALICE_UID, BOB_UID],
+      readByUids: [ALICE_UID],
+      starredByUids: [],
+      reactions: {},
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+});
+
+

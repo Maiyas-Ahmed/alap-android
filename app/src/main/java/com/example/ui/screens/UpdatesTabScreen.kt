@@ -106,7 +106,7 @@ fun UpdatesTabScreen(
             (visibleAnnouncement.priority == "update" || visibleAnnouncement.versionTag.isNotBlank()))
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // App Version & Direct In-App Update Card (connected to Admin Console + alap-updates.netlify.app/version.json)
+        // App Version & Direct In-App Update Card (connected to Firebase AppConfig + alap-updates.netlify.app/version.json)
         Surface(
             shape = RoundedCornerShape(16.dp),
             color = if (hasNewerUpdate) MaterialTheme.colorScheme.primaryContainer else Color.White,
@@ -281,7 +281,7 @@ fun UpdatesTabScreen(
             }
         }
 
-        // Active Admin Announcement Card if present and version-relevant
+        // Active Announcement Card if present and version-relevant
         if (visibleAnnouncement != null && showAnnouncementNotice) {
             Surface(
                 shape = RoundedCornerShape(16.dp),
@@ -377,7 +377,7 @@ fun UpdatesTabScreen(
                     Text(
                         text = when {
                             isReadOnlyMode -> "Read-only mode active"
-                            !allowStatusUpdates -> "Status updates paused by Admin"
+                            !allowStatusUpdates -> "Status updates temporarily paused"
                             else -> "Tap to share a lightweight 24h text update"
                         },
                         style = MaterialTheme.typography.bodySmall,

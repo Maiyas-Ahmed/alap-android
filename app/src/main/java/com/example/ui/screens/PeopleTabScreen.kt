@@ -22,19 +22,24 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.GroupAdd
+import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -53,8 +58,12 @@ import androidx.core.content.ContextCompat
 import com.example.data.model.UiState
 import com.example.data.model.UserProfile
 import com.example.ui.components.AlapAvatar
+import com.example.ui.components.StudentBadge
+import com.example.ui.components.TeacherBadge
 import com.example.ui.components.VerifiedBadge
 import com.example.ui.theme.LocalAlapColors
+
+private enum class PeopleFilter { ALL, STUDENTS, TEACHERS }
 
 @Composable
 fun PeopleTabScreen(
@@ -64,10 +73,13 @@ fun PeopleTabScreen(
     allowGroupCreation: Boolean,
     isReadOnlyMode: Boolean,
     onUserClick: (UserProfile) -> Unit,
-    onCreateGroup: (title: String, description: String, memberUids: List<String>) -> Unit
+    onCreateGroup: (title: String, description: String, memberUids: List<String>, isStudyGroup: Boolean, studyLockToAdmin: Boolean) -> Unit,
+    onJoinStudyCode: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     var showCreateGroupDialog by remember { mutableStateOf(false) }
+    var showJoinStudyCodeDialog by remember { mutableStateOf(false) }
+    var activeFilter by remember { mutableStateOf(PeopleFilter.ALL) }
     var hasContactPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
@@ -132,6 +144,39 @@ fun PeopleTabScreen(
                 }
             }
 
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(enabled = !isReadOnlyMode) { showJoinStudyCodeDialog = true }
+                    .testTag("join_class_code_button")
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.School,
+                        contentDescription = "Join Class Code",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Class Code",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Join Study Group",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
             if (!hasContactPermission) {
                 Surface(
                     shape = RoundedCornerShape(14.dp),
@@ -158,7 +203,7 @@ fun PeopleTabScreen(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "Find phonebook friends",
+                                text = "Phonebook",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -168,8 +213,47 @@ fun PeopleTabScreen(
             }
         }
 
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            FilterChip(
+                selected = activeFilter == PeopleFilter.ALL,
+                onClick = { activeFilter = PeopleFilter.ALL },
+                label = { Text("All People") },
+                modifier = Modifier.testTag("people_filter_all")
+            )
+            FilterChip(
+                selected = activeFilter == PeopleFilter.STUDENTS,
+                onClick = { activeFilter = PeopleFilter.STUDENTS },
+                leadingIcon = {
+                    Icon(Icons.Filled.School, contentDescription = null)
+                },
+                label = { Text("Students (ST)") },
+                modifier = Modifier.testTag("people_filter_students")
+            )
+            FilterChip(
+                selected = activeFilter == PeopleFilter.TEACHERS,
+                onClick = { activeFilter = PeopleFilter.TEACHERS },
+                leadingIcon = {
+                    Icon(Icons.Filled.WorkspacePremium, contentDescription = null)
+                },
+                label = { Text("Teachers (TR)") },
+                modifier = Modifier.testTag("people_filter_teachers")
+            )
+        }
+
         Text(
-            text = if (hasContactPermission && deviceContactPhones.isNotEmpty()) "PHONEBOOK & ALAP CONTACTS" else "PEOPLE ON ALAP",
+            text = when {
+                activeFilter == PeopleFilter.STUDENTS -> "STUDENTS ON ALAP (ST)"
+                activeFilter == PeopleFilter.TEACHERS -> "VERIFIED TEACHERS ON ALAP (TR)"
+                hasContactPermission && deviceContactPhones.isNotEmpty() -> "PHONEBOOK & ALAP CONTACTS"
+                else -> "PEOPLE ON ALAP"
+            },
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
@@ -189,16 +273,21 @@ fun PeopleTabScreen(
             }
 
             is UiState.Success -> {
-                val otherUsers = remember(usersState.data, currentUserId, searchQuery, deviceContactPhones) {
+                val otherUsers = remember(usersState.data, currentUserId, searchQuery, deviceContactPhones, activeFilter) {
                     val q = searchQuery.trim().lowercase()
                     usersState.data.filter { user ->
-                        val isMatchedContact = deviceContactPhones.isEmpty() ||
-                            deviceContactPhones.any { phone -> user.publicPhoneNumber.contains(phone) || phone.contains(user.publicPhoneNumber) }
-                        user.userId != currentUserId && !user.isSuspended && (
+                        val roleMatch = when (activeFilter) {
+                            PeopleFilter.ALL -> true
+                            PeopleFilter.STUDENTS -> user.isStudent
+                            PeopleFilter.TEACHERS -> user.isTeacher
+                        }
+                        roleMatch && user.userId != currentUserId && !user.isSuspended && (
                             q.isBlank() ||
                                 user.displayName.lowercase().contains(q) ||
                                 (!user.hideUserId && user.handle.lowercase().contains(q)) ||
-                                user.publicPhoneNumber.contains(q)
+                                user.publicPhoneNumber.contains(q) ||
+                                (user.isTeacher && user.teacherSubject.lowercase().contains(q)) ||
+                                (user.isStudent && (user.studentClass.lowercase().contains(q) || user.studentSubject.lowercase().contains(q)))
                             )
                     }
                 }
@@ -226,6 +315,9 @@ fun PeopleTabScreen(
                             val isPhoneMatched = deviceContactPhones.any { p -> user.publicPhoneNumber.contains(p) || (user.publicPhoneNumber.isNotBlank() && p.contains(user.publicPhoneNumber)) }
                             val subtitleParts = buildList {
                                 if (isPhoneMatched) add("In phone contacts")
+                                if (user.isTeacher && user.teacherSubject.isNotBlank()) add("Teacher • ${user.teacherSubject}")
+                                if (user.isStudent && user.studentClass.isNotBlank()) add(user.studentClass)
+                                if (user.isStudent && user.studentSubject.isNotBlank()) add(user.studentSubject)
                                 if (!user.hideUserId && user.handle.isNotBlank()) {
                                     add("@${user.handle}")
                                 }
@@ -265,6 +357,14 @@ fun PeopleTabScreen(
                                             Spacer(modifier = Modifier.width(4.dp))
                                             VerifiedBadge()
                                         }
+                                        if (user.isTeacher) {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            TeacherBadge()
+                                        }
+                                        if (user.isStudent) {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            StudentBadge()
+                                        }
                                     }
                                     Text(
                                         text = subtitleText,
@@ -291,6 +391,8 @@ fun PeopleTabScreen(
         val candidates = usersState.data.filter { it.userId != currentUserId && !it.isSuspended }
         var groupTitle by remember { mutableStateOf("") }
         var groupDesc by remember { mutableStateOf("") }
+        var isStudyGroup by remember { mutableStateOf(false) }
+        var studyLockToAdmin by remember { mutableStateOf(false) }
         var selectedUids by remember { mutableStateOf(setOf<String>()) }
 
         AlertDialog(
@@ -314,6 +416,49 @@ fun PeopleTabScreen(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Study Group Mode", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                "Auto-creates a 6-char Class Code & Study Board",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = isStudyGroup,
+                            onCheckedChange = {
+                                isStudyGroup = it
+                                if (!it) studyLockToAdmin = false
+                            },
+                            modifier = Modifier.testTag("study_group_toggle")
+                        )
+                    }
+                    if (isStudyGroup) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Teacher / Admin Only Study Posts", style = MaterialTheme.typography.titleSmall)
+                                Text(
+                                    "Only group admins can add Study Board notes, quizzes & flashcards",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = studyLockToAdmin,
+                                onCheckedChange = { studyLockToAdmin = it },
+                                modifier = Modifier.testTag("study_lock_toggle")
+                            )
+                        }
+                    }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "Select members (${selectedUids.size} selected)",
@@ -350,6 +495,14 @@ fun PeopleTabScreen(
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(user.displayName, style = MaterialTheme.typography.bodyMedium)
+                                    if (user.isTeacher) {
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        TeacherBadge()
+                                    }
+                                    if (user.isStudent) {
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        StudentBadge()
+                                    }
                                 }
                             }
                         }
@@ -359,7 +512,7 @@ fun PeopleTabScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        onCreateGroup(groupTitle, groupDesc, selectedUids.toList())
+                        onCreateGroup(groupTitle, groupDesc, selectedUids.toList(), isStudyGroup, studyLockToAdmin)
                         showCreateGroupDialog = false
                     },
                     enabled = groupTitle.isNotBlank() && selectedUids.isNotEmpty(),
@@ -370,6 +523,16 @@ fun PeopleTabScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showCreateGroupDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showJoinStudyCodeDialog) {
+        JoinStudyCodeDialog(
+            onDismiss = { showJoinStudyCodeDialog = false },
+            onJoinCode = { code ->
+                showJoinStudyCodeDialog = false
+                onJoinStudyCode(code)
             }
         )
     }
