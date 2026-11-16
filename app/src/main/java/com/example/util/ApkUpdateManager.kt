@@ -132,13 +132,12 @@ object ApkUpdateManager {
                 var redirects = 0
                 while (redirects <= 10) {
                     val conn = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
-                        instanceFollowRedirects = false
+                        instanceFollowRedirects = true
                         requestMethod = "GET"
                         connectTimeout = 15_000
                         readTimeout = 30_000
-                        setRequestProperty("User-Agent", "AlapAndroidUpdater/1.0.1")
+                        setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36")
                         setRequestProperty("Accept", "application/vnd.android.package-archive, application/octet-stream, */*")
-                        setRequestProperty("Accept-Encoding", "identity")
                     }
                     val code = conn.responseCode
                     if (code in listOf(301, 302, 303, 307, 308)) {
