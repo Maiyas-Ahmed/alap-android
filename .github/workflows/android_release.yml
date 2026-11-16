@@ -57,8 +57,23 @@ jobs:
               -dname "CN=Android Debug,O=Android,C=US"
           fi
 
+      - name: Prepare Google Services Config
+        env:
+          GOOGLE_SERVICES_RAW: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_RAW" ]; then
+            echo "Writing app/google-services.json from GOOGLE_SERVICES_JSON secret..."
+            printf '%s' "$GOOGLE_SERVICES_RAW" > app/google-services.json
+            python3 -m json.tool app/google-services.json >/dev/null
+          elif [ -f app/google-services.json ]; then
+            echo "Using existing app/google-services.json from repository."
+          else
+            echo "::error::app/google-services.json is missing! Add GOOGLE_SERVICES_JSON in GitHub Repository Secrets."
+            exit 1
+          fi
+
       - name: Build Android APK
-        run: gradle :app:assembleDebug --no-daemon
+        run: gradle :app:assembleDebug --no-daemon --no-configuration-cache
 
       - name: Prepare APK Asset
         id: meta
