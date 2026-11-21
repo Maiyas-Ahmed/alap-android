@@ -50,11 +50,18 @@ service cloud.firestore {
              (val.size() == 0 || val[0] is string);
     }
 
+    function userAccountType(uid) {
+      return exists(/databases/$(database)/documents/users/$(uid)) &&
+             ('accountType' in get(/databases/$(database)/documents/users/$(uid)).data)
+        ? get(/databases/$(database)/documents/users/$(uid)).data.accountType
+        : 'personal';
+    }
+
     // --- Validation Helpers ---
     function isValidUserProfile(data) {
       return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
              data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 50 &&
-             data.handle is string && data.handle.size() >= 2 && data.handle.size() <= 30 &&
+             ((('accountType' in data) && data.accountType == 'guest' && data.handle == '') || (data.handle is string && data.handle.size() >= 2 && data.handle.size() <= 30)) &&
              data.about is string && data.about.size() <= 140 &&
              data.avatarId is string && data.avatarId.size() >= 1 && data.avatarId.size() <= 40 &&
              data.publicPhoneNumber is string && data.publicPhoneNumber.size() <= 24 &&
@@ -73,7 +80,7 @@ service cloud.firestore {
              (!('isStudent' in data) || data.isStudent is bool) &&
              (!('studentClass' in data) || (data.studentClass is string && data.studentClass.size() <= 40)) &&
              (!('studentSubject' in data) || (data.studentSubject is string && data.studentSubject.size() <= 80)) &&
-             (!('accountType' in data) || data.accountType in ['student', 'personal', 'teacher']) &&
+             (!('accountType' in data) || data.accountType in ['student', 'personal', 'teacher', 'guest']) &&
              (!('isTeacher' in data) || data.isTeacher is bool) &&
              (!('teacherSubject' in data) || (data.teacherSubject is string && data.teacherSubject.size() <= 80)) &&
              (!('teacherPlanId' in data) || (data.teacherPlanId is string && data.teacherPlanId.size() <= 64)) &&
@@ -81,6 +88,9 @@ service cloud.firestore {
              (!('teacherBillingCycle' in data) || data.teacherBillingCycle in ['none', 'free', 'monthly', 'yearly']) &&
              (!('teacherSubscriptionStatus' in data) || data.teacherSubscriptionStatus in ['none', 'free_launch', 'active', 'grace', 'expired']) &&
              (!('teacherPlanExpiresAtEpochMs' in data) || (data.teacherPlanExpiresAtEpochMs is int && data.teacherPlanExpiresAtEpochMs >= 0)) &&
+             (!('guestEmail' in data) || (data.guestEmail is string && data.guestEmail.size() <= 160)) &&
+             (!('guestDeviceInfo' in data) || (data.guestDeviceInfo is string && data.guestDeviceInfo.size() <= 160)) &&
+             (!('guestJoinedAtEpochMs' in data) || (data.guestJoinedAtEpochMs is int && data.guestJoinedAtEpochMs >= 0)) &&
              data.lastSeenAt is timestamp && data.lastSeenAt <= request.time &&
              data.createdAt is timestamp && data.createdAt <= request.time &&
              data.updatedAt is timestamp && data.updatedAt <= request.time;
@@ -315,7 +325,14 @@ service cloud.firestore {
                        incoming().isVerified == false &&
                        incoming().isSuspended == false &&
                        (!('isTeacher' in incoming()) || incoming().isTeacher == false) &&
-                       (!('accountType' in incoming()) || incoming().accountType in ['student', 'personal']) &&
+                       (!('accountType' in incoming()) || incoming().accountType in ['student', 'personal', 'guest']) &&
+                       (!('accountType' in incoming()) || incoming().accountType != 'guest' || (
+                         incoming().hidePhoneNumber == false &&
+                         incoming().hideUserId == false &&
+                         incoming().hideOnlineStatus == false &&
+                         incoming().hideAbout == false &&
+                         (!('guestEmail' in incoming()) || incoming().guestEmail == '' || (('email' in request.auth.token) && incoming().guestEmail == request.auth.token.email))
+                       )) &&
                        incoming().keys().hasAll([
                          'userId', 'displayName', 'handle', 'about', 'avatarId',
                          'publicPhoneNumber', 'publicUserId',
@@ -333,6 +350,7 @@ service cloud.firestore {
                          'isDiscoverable', 'isOnline', 'isVerified', 'isSuspended',
                          'isStudent', 'studentClass', 'studentSubject',
                          'accountType', 'isTeacher', 'teacherSubject',
+                         'guestEmail', 'guestDeviceInfo', 'guestJoinedAtEpochMs',
                          'lastSeenAt', 'createdAt', 'updatedAt'
                        ]) &&
                        isValidUserProfile(incoming());
@@ -349,8 +367,16 @@ service cloud.firestore {
                            incoming().isVerified == existing().isVerified &&
                            incoming().isSuspended == existing().isSuspended &&
                            (!('isTeacher' in incoming()) || incoming().isTeacher == (('isTeacher' in existing()) ? existing().isTeacher : false)) &&
-                           (!('accountType' in incoming()) || incoming().accountType in ['student', 'personal'] || (('accountType' in existing()) && incoming().accountType == existing().accountType)) &&
+                           (!('accountType' in incoming()) || incoming().accountType in ['student', 'personal', 'guest'] || (('accountType' in existing()) && incoming().accountType == existing().accountType)) &&
                            (!('accountType' in existing()) || existing().accountType != 'student' || existing().isProfileCompleted != true || (incoming().accountType == 'student' && incoming().isStudent == true)) &&
+                           (!('accountType' in existing()) || existing().accountType == 'guest' || existing().isProfileCompleted != true || !('accountType' in incoming()) || incoming().accountType != 'guest') &&
+                           (!('accountType' in incoming()) || incoming().accountType != 'guest' || (
+                             incoming().hidePhoneNumber == false &&
+                             incoming().hideUserId == false &&
+                             incoming().hideOnlineStatus == false &&
+                             incoming().hideAbout == false &&
+                             (!('guestEmail' in incoming()) || incoming().guestEmail == '' || (('email' in request.auth.token) && incoming().guestEmail == request.auth.token.email))
+                           )) &&
                            incoming().diff(existing()).affectedKeys().hasOnly([
                              'displayName', 'handle', 'about', 'avatarId',
                              'publicPhoneNumber', 'publicUserId',
@@ -360,6 +386,7 @@ service cloud.firestore {
                              'isDiscoverable', 'isOnline',
                              'isStudent', 'studentClass', 'studentSubject',
                              'accountType', 'teacherSubject',
+                             'guestEmail', 'guestDeviceInfo', 'guestJoinedAtEpochMs',
                              'lastSeenAt', 'updatedAt'
                            ])
                          )
@@ -495,7 +522,18 @@ service cloud.firestore {
                        isValidChat(incoming()) &&
                        request.auth.uid in incoming().participantUids &&
                        incoming().createdBy == request.auth.uid &&
-                       (incoming().chatType == 'direct' || request.auth.uid in incoming().adminUids) &&
+                       (
+                         (
+                           incoming().chatType == 'direct' &&
+                           incoming().participantUids.size() == 2 &&
+                           (userAccountType(incoming().participantUids[0]) == 'guest') == (userAccountType(incoming().participantUids[1]) == 'guest')
+                         ) ||
+                         (
+                           incoming().chatType == 'group' &&
+                           request.auth.uid in incoming().adminUids &&
+                           userAccountType(request.auth.uid) != 'guest'
+                         )
+                       ) &&
                        incoming().keys().hasAll([
                          'chatType', 'title', 'description', 'avatarId',
                          'participantUids', 'adminUids', 'createdBy',
@@ -555,6 +593,7 @@ service cloud.firestore {
                          // Action: User joins a Study Group via active 6-char invite code (zero-stranger join)
                          (
                            existing().chatType == 'group' &&
+                           userAccountType(request.auth.uid) != 'guest' &&
                            'inviteCode' in existing() &&
                            existing().inviteCode.size() >= 6 &&
                            !(request.auth.uid in existing().participantUids) &&
@@ -607,6 +646,14 @@ service cloud.firestore {
                          exists(/databases/$(database)/documents/chats/$(chatId)) &&
                          request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participantUids &&
                          incoming().participantUids == get(/databases/$(database)/documents/chats/$(chatId)).data.participantUids &&
+                         (
+                           userAccountType(request.auth.uid) != 'guest' ||
+                           (
+                             get(/databases/$(database)/documents/chats/$(chatId)).data.chatType == 'direct' &&
+                             userAccountType(get(/databases/$(database)/documents/chats/$(chatId)).data.participantUids[0]) == 'guest' &&
+                             userAccountType(get(/databases/$(database)/documents/chats/$(chatId)).data.participantUids[1]) == 'guest'
+                           )
+                         ) &&
                          (
                            !(incoming().messageType in ['quiz', 'flashcard']) ||
                            !('studyLockToAdmin' in get(/databases/$(database)/documents/chats/$(chatId)).data) ||
@@ -805,6 +852,7 @@ service cloud.firestore {
 
       allow create: if isSignedIn() &&
                        isNotSuspended() &&
+                       userAccountType(request.auth.uid) != 'guest' &&
                        isValidId(statusId) &&
                        isValidStatus(incoming()) &&
                        incoming().userId == request.auth.uid &&

@@ -21,12 +21,14 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Report
 import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -54,9 +56,13 @@ import com.example.data.model.ChatMessage
 import com.example.data.model.UserProfile
 import com.example.ui.components.AlapAvatar
 import com.example.ui.components.AlapDateFormatter
+import com.example.ui.components.GuestBadge
 import com.example.ui.components.StudentBadge
 import com.example.ui.components.TeacherBadge
 import com.example.ui.components.VerifiedBadge
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun EditMessageDialog(
@@ -492,10 +498,14 @@ fun GroupInfoDialog(
 fun ContactInfoDialog(
     otherUser: UserProfile,
     isBlocked: Boolean,
+    chatDisabledNotice: String? = null,
     onToggleBlock: () -> Unit,
     onReportClick: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val clipboard = LocalClipboardManager.current
+    val isGuest = otherUser.isGuestAccount()
+
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Color.White,
@@ -503,30 +513,37 @@ fun ContactInfoDialog(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 AlapAvatar(
                     avatarId = otherUser.avatarId,
-                    displayName = otherUser.displayName,
-                    isOnline = otherUser.isOnline && !otherUser.hideOnlineStatus,
+                    displayName = if (isGuest) "Guest" else otherUser.displayName,
+                    isOnline = otherUser.isOnline && (isGuest || !otherUser.hideOnlineStatus),
                     size = 46.dp
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(otherUser.displayName, style = MaterialTheme.typography.titleMedium)
-                        if (otherUser.isVerified) {
+                        Text(
+                            text = if (isGuest) "Guest" else otherUser.displayName,
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        if (isGuest) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            GuestBadge()
+                        }
+                        if (!isGuest && otherUser.isVerified) {
                             Spacer(modifier = Modifier.width(4.dp))
                             VerifiedBadge()
                         }
-                        if (otherUser.isTeacher) {
+                        if (!isGuest && otherUser.isTeacher) {
                             Spacer(modifier = Modifier.width(6.dp))
                             TeacherBadge()
                         }
-                        if (otherUser.isStudent) {
+                        if (!isGuest && otherUser.isStudent) {
                             Spacer(modifier = Modifier.width(6.dp))
                             StudentBadge()
                         }
                     }
                     Text(
                         text = when {
-                            otherUser.hideOnlineStatus -> "Online status hidden"
+                            !isGuest && otherUser.hideOnlineStatus -> "Online status hidden"
                             otherUser.isOnline -> "Online now"
                             otherUser.lastSeenAt != null -> "Last seen ${AlapDateFormatter.formatChatTime(otherUser.lastSeenAt)}"
                             else -> "Offline"
@@ -538,48 +555,140 @@ fun ContactInfoDialog(
             }
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Column {
-                    Text("Mobile Number", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(
-                        text = if (otherUser.hidePhoneNumber || otherUser.publicPhoneNumber.isBlank()) {
-                            "Hidden by privacy settings"
-                        } else {
-                            otherUser.publicPhoneNumber
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (otherUser.hidePhoneNumber || otherUser.publicPhoneNumber.isBlank()) {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (isGuest) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFFFFEDE0),
+                        border = BorderStroke(1.dp, Color(0xFFB25000).copy(alpha = 0.35f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("guest_transparency_card")
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Shield,
+                                    contentDescription = null,
+                                    tint = Color(0xFFB25000),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "GUEST ANTI-FRAUD RECORD",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFB25000)
+                                )
+                            }
+                            Text(
+                                text = "Verified Gmail: ${otherUser.guestEmail.ifBlank { "Google Sign-In verified" }}",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = Color(0xFF4A2000)
+                            )
+                            Text(
+                                text = "Device & OS: ${otherUser.guestDeviceInfo.ifBlank { "Recorded on sign-in" }}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF4A2000)
+                            )
+                            if (otherUser.guestJoinedAtEpochMs > 0L) {
+                                val joinedDate = SimpleDateFormat("MMM d, yyyy h:mm a", Locale.getDefault())
+                                    .format(Date(otherUser.guestJoinedAtEpochMs))
+                                Text(
+                                    text = "Joined: $joinedDate",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF4A2000)
+                                )
+                            }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "Audit UID: ${otherUser.userId}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color(0xFF7A3600),
+                                    modifier = Modifier.weight(1f)
+                                )
+                                IconButton(
+                                    onClick = { clipboard.setText(AnnotatedString(otherUser.userId)) },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.ContentCopy,
+                                        contentDescription = "Copy Guest UID",
+                                        tint = Color(0xFFB25000),
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = "No Alap ID • No custom name • Privacy toggles locked OFF to stop scams.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFF7A3600)
+                            )
                         }
-                    )
-                }
-                HorizontalDivider()
-                Column {
-                    Text("Alap User ID & Handle", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(
-                        text = if (otherUser.hideUserId || otherUser.publicUserId.isBlank()) {
-                            "Hidden by privacy settings"
-                        } else {
-                            "${otherUser.publicUserId} (@${otherUser.handle})"
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (otherUser.hideUserId || otherUser.publicUserId.isBlank()) {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
-                        }
-                    )
-                }
-                HorizontalDivider()
-                Column {
-                    Text("About", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(
-                        text = if (otherUser.hideAbout) "Hidden by privacy settings" else otherUser.about,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (otherUser.hideAbout) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
-                    )
+                    }
+                    if (!chatDisabledNotice.isNullOrBlank()) {
+                        Text(
+                            text = chatDisabledNotice,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                } else {
+                    Column {
+                        Text("Mobile Number", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            text = if (otherUser.hidePhoneNumber || otherUser.publicPhoneNumber.isBlank()) {
+                                "Hidden by privacy settings"
+                            } else {
+                                otherUser.publicPhoneNumber
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (otherUser.hidePhoneNumber || otherUser.publicPhoneNumber.isBlank()) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            }
+                        )
+                    }
+                    HorizontalDivider()
+                    Column {
+                        Text("Alap User ID & Handle", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            text = if (otherUser.hideUserId || otherUser.publicUserId.isBlank()) {
+                                "Hidden by privacy settings"
+                            } else {
+                                "${otherUser.publicUserId} (@${otherUser.handle})"
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (otherUser.hideUserId || otherUser.publicUserId.isBlank()) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            }
+                        )
+                    }
+                    HorizontalDivider()
+                    Column {
+                        Text("About", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            text = if (otherUser.hideAbout) "Hidden by privacy settings" else otherUser.about,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (otherUser.hideAbout) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                 }
                 if (otherUser.isTeacher && otherUser.teacherSubject.isNotBlank()) {
                     HorizontalDivider()

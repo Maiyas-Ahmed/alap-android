@@ -24,11 +24,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.DataSaverOn
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.PersonOutline
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -54,6 +56,8 @@ import androidx.credentials.CredentialManager
 import com.example.R
 import com.example.auth.attemptAutoSignIn
 import com.example.auth.onGoogleSignInClicked
+import com.example.data.local.LocalPreferencesManager
+import kotlinx.coroutines.launch
 
 @Composable
 fun AuthScreen(
@@ -62,6 +66,7 @@ fun AuthScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val credentialManager = remember { CredentialManager.create(context) }
+    val prefs = remember { LocalPreferencesManager(context.applicationContext) }
 
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -181,22 +186,25 @@ fun AuthScreen(
                     onClick = {
                         errorMessage = null
                         isLoading = true
-                        onGoogleSignInClicked(
-                            context = context,
-                            credentialManager = credentialManager,
-                            onAuthSuccess = {
-                                isLoading = false
-                                onAuthSuccess()
-                            },
-                            onAuthError = { msg ->
-                                isLoading = false
-                                errorMessage = msg
-                            },
-                            scope = scope,
-                            onAuthCancelled = {
-                                isLoading = false
-                            }
-                        )
+                        scope.launch {
+                            prefs.setPendingGuestLogin(false)
+                            onGoogleSignInClicked(
+                                context = context,
+                                credentialManager = credentialManager,
+                                onAuthSuccess = {
+                                    isLoading = false
+                                    onAuthSuccess()
+                                },
+                                onAuthError = { msg ->
+                                    isLoading = false
+                                    errorMessage = msg
+                                },
+                                scope = scope,
+                                onAuthCancelled = {
+                                    isLoading = false
+                                }
+                            )
+                        }
                     },
                     enabled = !isLoading,
                     shape = RoundedCornerShape(16.dp),
@@ -242,8 +250,59 @@ fun AuthScreen(
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedButton(
+                    onClick = {
+                        errorMessage = null
+                        isLoading = true
+                        scope.launch {
+                            prefs.setPendingGuestLogin(true)
+                            onGoogleSignInClicked(
+                                context = context,
+                                credentialManager = credentialManager,
+                                onAuthSuccess = {
+                                    isLoading = false
+                                    onAuthSuccess()
+                                },
+                                onAuthError = { msg ->
+                                    scope.launch { prefs.setPendingGuestLogin(false) }
+                                    isLoading = false
+                                    errorMessage = msg
+                                },
+                                scope = scope,
+                                onAuthCancelled = {
+                                    scope.launch { prefs.setPendingGuestLogin(false) }
+                                    isLoading = false
+                                }
+                            )
+                        }
+                    },
+                    enabled = !isLoading,
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                        .testTag("guest_sign_in_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.PersonOutline,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Guest Account (No ID • Quick Chat)",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
                 Text(
-                    text = "Sign in or create your encrypted offline-first Alap account with Gmail.",
+                    text = "Guest mode skips Alap User ID, @handle & profile setup. Guests chat only with other Guests, while verified Gmail & device info remain visible to prevent scams.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center

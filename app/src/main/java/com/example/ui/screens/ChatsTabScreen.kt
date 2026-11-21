@@ -69,6 +69,7 @@ import com.example.data.model.UiState
 import com.example.data.model.UserProfile
 import com.example.ui.components.AlapAvatar
 import com.example.ui.components.AlapDateFormatter
+import com.example.ui.components.GuestBadge
 import com.example.ui.components.StudentBadge
 import com.example.ui.components.TeacherBadge
 import com.example.ui.components.UpdateBannerCard
@@ -390,23 +391,28 @@ private fun ChatListRow(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.weight(1f)
                 ) {
+                    val isOtherGuest = !isGroup && otherUser?.isGuestAccount() == true
                     Text(
-                        text = displayTitle,
+                        text = if (isOtherGuest) "Guest" else displayTitle,
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false)
                     )
-                    if (!isGroup && otherUser?.isVerified == true) {
+                    if (isOtherGuest) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        GuestBadge()
+                    }
+                    if (!isGroup && !isOtherGuest && otherUser?.isVerified == true) {
                         Spacer(modifier = Modifier.width(4.dp))
                         VerifiedBadge()
                     }
-                    if (!isGroup && otherUser?.isTeacher == true) {
+                    if (!isGroup && !isOtherGuest && otherUser?.isTeacher == true) {
                         Spacer(modifier = Modifier.width(6.dp))
                         TeacherBadge()
                     }
-                    if (!isGroup && otherUser?.isStudent == true) {
+                    if (!isGroup && !isOtherGuest && otherUser?.isStudent == true) {
                         Spacer(modifier = Modifier.width(6.dp))
                         StudentBadge()
                     } else if (isGroup && chat.isStudyGroup) {

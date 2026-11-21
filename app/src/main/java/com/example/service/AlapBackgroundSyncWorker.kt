@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Periodic WorkManager fallback that checks active announcements and unread chats
- * in the background so users still receive OS notifications even before FCM server setup.
+ * in the background and posts WhatsApp-style lock-screen & heads-up notifications.
  */
 class AlapBackgroundSyncWorker(
     appContext: Context,
@@ -37,6 +37,7 @@ class AlapBackgroundSyncWorker(
         val prefs = LocalPreferencesManager(applicationContext)
         val notificationsEnabled = prefs.notificationsEnabled.first()
         if (!notificationsEnabled) return Result.success()
+        val wakeScreen = prefs.wakeScreenOnNotification.first()
 
         return try {
             val db = AlapFirestoreProvider.getDatabase(applicationContext)
@@ -56,7 +57,8 @@ class AlapBackgroundSyncWorker(
                     announcementId = topAnnouncement.id,
                     title = topAnnouncement.title,
                     message = topAnnouncement.message,
-                    versionTag = topAnnouncement.versionTag
+                    versionTag = topAnnouncement.versionTag,
+                    wakeScreen = wakeScreen
                 )
                 if (posted) {
                     prefs.markAnnouncementNotified(topAnnouncement.id)
@@ -80,16 +82,26 @@ class AlapBackgroundSyncWorker(
                     chat.lastMessageSenderId.isNotBlank() &&
                     !chat.isMutedBy(uid)
                 ) {
-                    val senderTitle = if (chat.chatType == "group") {
+                    val isGroup = chat.chatType == "group"
+                    val senderTitle = if (isGroup) {
                         chat.title.ifBlank { "Group Chat" }
                     } else {
-                        "Alap"
+                        try {
+                            val senderDoc = db.collection("users").document(chat.lastMessageSenderId).get().await()
+                            senderDoc.getString("displayName")?.takeIf { it.isNotBlank() } ?: "Alap"
+                        } catch (_: Exception) {
+                            "Alap"
+                        }
                     }
                     NotificationHelper.showIncomingMessageNotification(
                         context = applicationContext,
                         chatId = chat.id,
                         senderName = senderTitle,
-                        preview = chat.lastMessageText.ifBlank { "You have an unread message" }
+                        preview = chat.lastMessageText.ifBlank { "You have an unread message" },
+                        isGroup = isGroup,
+                        conversationTitle = chat.title.ifBlank { senderTitle },
+                        wakeScreen = wakeScreen,
+                        includeInlineActions = true
                     )
                 }
                 if (msgAtMs > maxSeenMs) maxSeenMs = msgAtMs

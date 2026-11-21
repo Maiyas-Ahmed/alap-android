@@ -28,6 +28,14 @@ class LocalPreferencesManager(private val context: Context) {
         prefs[KEY_FLOATING_GLASS_ENABLED] ?: false
     }
 
+    val wakeScreenOnNotification: Flow<Boolean> = context.alapDataStore.data.map { prefs ->
+        prefs[KEY_WAKE_SCREEN_ON_NOTIF] ?: true
+    }
+
+    val pendingGuestLogin: Flow<Boolean> = context.alapDataStore.data.map { prefs ->
+        prefs[KEY_PENDING_GUEST_LOGIN] ?: false
+    }
+
     val screenSecurityEnabled: Flow<Boolean> = context.alapDataStore.data.map { prefs ->
         prefs[KEY_SCREEN_SECURITY_ENABLED] ?: false
     }
@@ -78,6 +86,14 @@ class LocalPreferencesManager(private val context: Context) {
 
     suspend fun setFloatingGlassEnabled(enabled: Boolean) {
         context.alapDataStore.edit { it[KEY_FLOATING_GLASS_ENABLED] = enabled }
+    }
+
+    suspend fun setWakeScreenOnNotification(enabled: Boolean) {
+        context.alapDataStore.edit { it[KEY_WAKE_SCREEN_ON_NOTIF] = enabled }
+    }
+
+    suspend fun setPendingGuestLogin(pending: Boolean) {
+        context.alapDataStore.edit { it[KEY_PENDING_GUEST_LOGIN] = pending }
     }
 
     suspend fun setScreenSecurityEnabled(enabled: Boolean) {
@@ -159,5 +175,7 @@ class LocalPreferencesManager(private val context: Context) {
         val KEY_PERMISSIONS_ONBOARDING_DONE = booleanPreferencesKey("permissions_onboarding_done")
         val KEY_LOCAL_ONLY_RELAY_MODE = booleanPreferencesKey("local_only_relay_mode")
         val KEY_LAST_BG_SYNC_MS = longPreferencesKey("last_bg_sync_ms")
+        val KEY_WAKE_SCREEN_ON_NOTIF = booleanPreferencesKey("wake_screen_on_notif")
+        val KEY_PENDING_GUEST_LOGIN = booleanPreferencesKey("pending_guest_login")
     }
 }

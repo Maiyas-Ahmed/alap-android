@@ -115,6 +115,7 @@ import com.example.data.model.UserProfile
 import com.example.ui.components.AlapAvatar
 import com.example.ui.components.AlapDateFormatter
 import com.example.ui.components.FlashcardMessageContent
+import com.example.ui.components.GuestBadge
 import com.example.ui.components.MessageStatusTick
 import com.example.ui.components.OfflineAndMaintenanceStrip
 import com.example.ui.components.QuizMessageContent
@@ -199,11 +200,12 @@ fun ChatDetailScreen(
     val otherUid = chat?.otherParticipantUid(currentUserId)
     val otherUser = otherUid?.let { usersMap[it] }
     val isOtherBlocked = otherUid != null && otherUid in blockedUids
-    val hideOtherOnline = otherUser?.hideOnlineStatus == true
-    val headerTitle = if (isGroup) {
-        chat?.title?.ifBlank { "Group Chat" } ?: "Group Chat"
-    } else {
-        otherUser?.displayName ?: "Alap Chat"
+    val isOtherGuest = !isGroup && otherUser?.isGuestAccount() == true
+    val hideOtherOnline = if (isOtherGuest) false else (otherUser?.hideOnlineStatus == true)
+    val headerTitle = when {
+        isGroup -> chat?.title?.ifBlank { "Group Chat" } ?: "Group Chat"
+        isOtherGuest -> "Guest"
+        else -> otherUser?.displayName ?: "Alap Chat"
     }
     val typingOthers = chat?.typingUids?.filter { it != currentUserId } ?: emptyList()
     val timerBadge = when (chat?.disappearingHours) {
@@ -282,15 +284,19 @@ fun ChatDetailScreen(
                                         overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.weight(1f, fill = false)
                                     )
-                                    if (!isGroup && otherUser?.isVerified == true) {
+                                    if (isOtherGuest) {
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        GuestBadge()
+                                    }
+                                    if (!isGroup && !isOtherGuest && otherUser?.isVerified == true) {
                                         Spacer(modifier = Modifier.width(4.dp))
                                         VerifiedBadge()
                                     }
-                                    if (!isGroup && otherUser?.isTeacher == true) {
+                                    if (!isGroup && !isOtherGuest && otherUser?.isTeacher == true) {
                                         Spacer(modifier = Modifier.width(6.dp))
                                         TeacherBadge()
                                     }
-                                    if (!isGroup && otherUser?.isStudent == true) {
+                                    if (!isGroup && !isOtherGuest && otherUser?.isStudent == true) {
                                         Spacer(modifier = Modifier.width(6.dp))
                                         StudentBadge()
                                     } else if (isGroup && chat?.isStudyGroup == true) {

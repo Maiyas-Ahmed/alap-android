@@ -51,11 +51,15 @@ data class UserProfile(
     val teacherBillingCycle: String = "none", // "none", "free", "monthly", "yearly"
     val teacherSubscriptionStatus: String = "none", // "none", "free_launch", "active", "grace", "expired"
     val teacherPlanExpiresAtEpochMs: Long = 0L,
+    val guestEmail: String = "",
+    val guestDeviceInfo: String = "",
+    val guestJoinedAtEpochMs: Long = 0L,
     @ServerTimestamp val lastSeenAt: Timestamp? = null,
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null
 ) {
     fun isLockedStudentAccount(): Boolean = isProfileCompleted && accountType == "student"
+    fun isGuestAccount(): Boolean = accountType == "guest"
 }
 
 @IgnoreExtraProperties

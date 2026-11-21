@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -29,6 +30,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Badge
+import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.ContentCopy
@@ -41,13 +43,17 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Mail
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.ScreenshotMonitor
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Upgrade
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
@@ -74,6 +80,9 @@ import androidx.compose.ui.unit.dp
 import com.example.data.model.AlapConstants
 import com.example.ui.components.AlapAvatar
 import com.example.util.NotificationHelper
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 enum class SettingsSection(val title: String) {
     ACCOUNT("Account"),
@@ -208,55 +217,116 @@ internal fun AccountSettingsSection(
     displayAlapId: String,
     hidePhone: Boolean,
     hideUserId: Boolean,
-    onEditProfile: () -> Unit
+    isGuestAccount: Boolean = false,
+    guestDeviceInfo: String = "",
+    guestJoinedAtEpochMs: Long = 0L,
+    onEditProfile: () -> Unit,
+    onUpgradeFromGuest: () -> Unit = {}
 ) {
     val clipboard = LocalClipboardManager.current
     SettingsSectionContainer {
-        SettingsCategoryCard(header = "Identity & Contact Info") {
-            AccountInfoLine(
-                icon = Icons.Filled.Mail,
-                label = "Verified Gmail",
-                value = currentEmail,
-                visibilityBadge = "Private",
-                onCopy = { clipboard.setText(AnnotatedString(currentEmail)) }
-            )
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
-            AccountInfoLine(
-                icon = Icons.Filled.Phone,
-                label = "Mobile Number",
-                value = displayPhone,
-                visibilityBadge = if (hidePhone) "Hidden" else "Public",
-                onCopy = if (displayPhone != "Not added yet") {
-                    { clipboard.setText(AnnotatedString(displayPhone)) }
-                } else null
-            )
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
-            AccountInfoLine(
-                icon = Icons.Filled.Badge,
-                label = "Alap User ID",
-                value = displayAlapId,
-                visibilityBadge = if (hideUserId) "Hidden" else "Public",
-                onCopy = { clipboard.setText(AnnotatedString(displayAlapId)) }
-            )
-        }
-
-        SettingsCategoryCard(header = "Profile Actions") {
-            Button(
-                onClick = onEditProfile,
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("edit_profile_button")
-            ) {
-                Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Edit Name, Handle, Phone & Bio")
+        if (isGuestAccount) {
+            SettingsCategoryCard(header = "Guest Anti-Fraud Transparency") {
+                AccountInfoLine(
+                    icon = Icons.Filled.Mail,
+                    label = "Verified Gmail (Visible to Prevent Fraud)",
+                    value = currentEmail,
+                    visibilityBadge = "Public",
+                    onCopy = { clipboard.setText(AnnotatedString(currentEmail)) }
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
+                AccountInfoLine(
+                    icon = Icons.Filled.PhoneAndroid,
+                    label = "Device & OS Info",
+                    value = guestDeviceInfo.ifBlank { "${Build.MANUFACTURER} ${Build.MODEL} • Android ${Build.VERSION.RELEASE}" },
+                    visibilityBadge = "Public",
+                    onCopy = null
+                )
+                if (guestJoinedAtEpochMs > 0L) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
+                    val joinedText = SimpleDateFormat("MMM d, yyyy h:mm a", Locale.getDefault())
+                        .format(Date(guestJoinedAtEpochMs))
+                    AccountInfoLine(
+                        icon = Icons.Filled.Shield,
+                        label = "Guest Session Opened",
+                        value = joinedText,
+                        visibilityBadge = "Audit",
+                        onCopy = null
+                    )
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
+                Text(
+                    text = "Guest accounts have no Alap User ID, @handle, or custom name, and can chat only with other Guests. Everyone can inspect your verified Gmail and device details to prevent fraud.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
-            Text(
-                text = "Who can see your mobile number or User ID can be changed anytime inside Settings → Privacy.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+
+            SettingsCategoryCard(header = "Upgrade Account") {
+                Button(
+                    onClick = onUpgradeFromGuest,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("upgrade_from_guest_button")
+                ) {
+                    Icon(Icons.Filled.Upgrade, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Upgrade to Full Verified Account")
+                }
+                Text(
+                    text = "Want to message regular users, create groups, or set your own name and privacy? Complete full profile setup anytime.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else {
+            SettingsCategoryCard(header = "Identity & Contact Info") {
+                AccountInfoLine(
+                    icon = Icons.Filled.Mail,
+                    label = "Verified Gmail",
+                    value = currentEmail,
+                    visibilityBadge = "Private",
+                    onCopy = { clipboard.setText(AnnotatedString(currentEmail)) }
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
+                AccountInfoLine(
+                    icon = Icons.Filled.Phone,
+                    label = "Mobile Number",
+                    value = displayPhone,
+                    visibilityBadge = if (hidePhone) "Hidden" else "Public",
+                    onCopy = if (displayPhone != "Not added yet") {
+                        { clipboard.setText(AnnotatedString(displayPhone)) }
+                    } else null
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
+                AccountInfoLine(
+                    icon = Icons.Filled.Badge,
+                    label = "Alap User ID",
+                    value = displayAlapId,
+                    visibilityBadge = if (hideUserId) "Hidden" else "Public",
+                    onCopy = { clipboard.setText(AnnotatedString(displayAlapId)) }
+                )
+            }
+
+            SettingsCategoryCard(header = "Profile Actions") {
+                Button(
+                    onClick = onEditProfile,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("edit_profile_button")
+                ) {
+                    Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Edit Name, Handle, Phone & Bio")
+                }
+                Text(
+                    text = "Who can see your mobile number or User ID can be changed anytime inside Settings → Privacy.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
@@ -270,6 +340,7 @@ internal fun PrivacySettingsSection(
     hideReadReceipts: Boolean,
     isDiscoverable: Boolean,
     blockedCount: Int,
+    isGuestAccount: Boolean = false,
     onUpdatePrivacy: (
         hidePhone: Boolean,
         hideUserId: Boolean,
@@ -281,12 +352,39 @@ internal fun PrivacySettingsSection(
     onOpenBlockedUsers: () -> Unit
 ) {
     SettingsSectionContainer {
+        if (isGuestAccount) {
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = Color(0xFFFFEDE0),
+                border = BorderStroke(1.dp, Color(0xFFB25000).copy(alpha = 0.3f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Shield,
+                        contentDescription = null,
+                        tint = Color(0xFFB25000)
+                    )
+                    Text(
+                        text = "Anti-Fraud Transparency Active: Guest accounts cannot hide online status, read receipts, bio, or directory visibility.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF7A3600)
+                    )
+                }
+            }
+        }
+
         SettingsCategoryCard(header = "Who Can See My Personal Info") {
             PrivacyToggleRow(
                 icon = Icons.Filled.Phone,
                 title = "Hide Mobile Number",
-                subtitle = if (hidePhone) "Nobody can see your mobile number" else "Visible in your contact info",
-                checked = hidePhone,
+                subtitle = if (isGuestAccount) "No mobile number stored in Guest mode" else if (hidePhone) "Nobody can see your mobile number" else "Visible in your contact info",
+                checked = if (isGuestAccount) false else hidePhone,
+                enabled = !isGuestAccount,
                 onCheckedChange = {
                     onUpdatePrivacy(it, hideUserId, hideOnline, hideAbout, hideReadReceipts, isDiscoverable)
                 },
@@ -296,8 +394,9 @@ internal fun PrivacySettingsSection(
             PrivacyToggleRow(
                 icon = Icons.Filled.Badge,
                 title = "Hide User ID & @Handle",
-                subtitle = if (hideUserId) "Hidden from contacts & search" else "Visible to contacts",
-                checked = hideUserId,
+                subtitle = if (isGuestAccount) "Guest mode has no User ID or @handle" else if (hideUserId) "Hidden from contacts & search" else "Visible to contacts",
+                checked = if (isGuestAccount) false else hideUserId,
+                enabled = !isGuestAccount,
                 onCheckedChange = {
                     onUpdatePrivacy(hidePhone, it, hideOnline, hideAbout, hideReadReceipts, isDiscoverable)
                 },
@@ -307,8 +406,9 @@ internal fun PrivacySettingsSection(
             PrivacyToggleRow(
                 icon = Icons.Filled.Person,
                 title = "Hide About Bio",
-                subtitle = if (hideAbout) "About bio hidden from contacts" else "Visible to everyone",
-                checked = hideAbout,
+                subtitle = if (isGuestAccount) "Locked public in Guest mode" else if (hideAbout) "About bio hidden from contacts" else "Visible to everyone",
+                checked = if (isGuestAccount) false else hideAbout,
+                enabled = !isGuestAccount,
                 onCheckedChange = {
                     onUpdatePrivacy(hidePhone, hideUserId, hideOnline, it, hideReadReceipts, isDiscoverable)
                 },
@@ -320,8 +420,9 @@ internal fun PrivacySettingsSection(
             PrivacyToggleRow(
                 icon = Icons.Filled.VisibilityOff,
                 title = "Hide Last Seen & Online",
-                subtitle = if (hideOnline) "Online status & last seen hidden" else "Visible to contacts",
-                checked = hideOnline,
+                subtitle = if (isGuestAccount) "Locked public for anti-fraud verification" else if (hideOnline) "Online status & last seen hidden" else "Visible to contacts",
+                checked = if (isGuestAccount) false else hideOnline,
+                enabled = !isGuestAccount,
                 onCheckedChange = {
                     onUpdatePrivacy(hidePhone, hideUserId, it, hideAbout, hideReadReceipts, isDiscoverable)
                 },
@@ -331,8 +432,9 @@ internal fun PrivacySettingsSection(
             PrivacyToggleRow(
                 icon = Icons.Filled.DoneAll,
                 title = "Hide Read Receipts",
-                subtitle = if (hideReadReceipts) "Blue read ticks are off" else "Senders see when you read messages",
-                checked = hideReadReceipts,
+                subtitle = if (isGuestAccount) "Locked public in Guest mode" else if (hideReadReceipts) "Blue read ticks are off" else "Senders see when you read messages",
+                checked = if (isGuestAccount) false else hideReadReceipts,
+                enabled = !isGuestAccount,
                 onCheckedChange = {
                     onUpdatePrivacy(hidePhone, hideUserId, hideOnline, hideAbout, it, isDiscoverable)
                 },
@@ -342,8 +444,9 @@ internal fun PrivacySettingsSection(
             PrivacyToggleRow(
                 icon = Icons.Filled.VerifiedUser,
                 title = "Discoverable in People Tab",
-                subtitle = if (isDiscoverable) "Others can find & message you" else "Hidden from People directory",
-                checked = isDiscoverable,
+                subtitle = if (isGuestAccount) "Guests are always visible to prevent scams" else if (isDiscoverable) "Others can find & message you" else "Hidden from People directory",
+                checked = if (isGuestAccount) true else isDiscoverable,
+                enabled = !isGuestAccount,
                 onCheckedChange = {
                     onUpdatePrivacy(hidePhone, hideUserId, hideOnline, hideAbout, hideReadReceipts, it)
                 },
@@ -441,11 +544,14 @@ internal fun SecuritySettingsSection(
 internal fun NotificationsSettingsSection(
     notificationsEnabled: Boolean,
     floatingGlassEnabled: Boolean,
+    wakeScreenOnNotification: Boolean,
     hasOverlayPermission: Boolean,
     onNotificationsToggle: (Boolean) -> Unit,
-    onFloatingGlassToggle: (Boolean) -> Unit
+    onFloatingGlassToggle: (Boolean) -> Unit,
+    onWakeScreenToggle: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
+    val hasUnrestrictedBattery = NotificationHelper.isIgnoringBatteryOptimizations(context)
     val notificationLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -453,7 +559,7 @@ internal fun NotificationsSettingsSection(
     }
 
     SettingsSectionContainer {
-        SettingsCategoryCard(header = "Message & Update Alerts") {
+        SettingsCategoryCard(header = "WhatsApp-Style Heads-Up & Lock Screen Alerts") {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -466,9 +572,9 @@ internal fun NotificationsSettingsSection(
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Heads-Up Message & Update Alerts", style = MaterialTheme.typography.titleSmall)
+                    Text("Heads-Up & Lock Screen Alerts", style = MaterialTheme.typography.titleSmall)
                     Text(
-                        "Play-compliant top pop-down notifications over games & apps",
+                        "Pop-down banners, public lock-screen preview & inline Reply / Mark as Read",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -485,6 +591,74 @@ internal fun NotificationsSettingsSection(
                         }
                     }
                 )
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
+            PrivacyToggleRow(
+                icon = Icons.Filled.NotificationsActive,
+                title = "Wake Screen on Lock Screen",
+                subtitle = if (wakeScreenOnNotification) {
+                    "Briefly lights up locked screen when a new message arrives"
+                } else {
+                    "Shows banner silently without waking screen"
+                },
+                checked = wakeScreenOnNotification,
+                onCheckedChange = onWakeScreenToggle,
+                testTag = "wake_screen_switch"
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
+            OutlinedButton(
+                onClick = { NotificationHelper.openMessageChannelSettings(context) },
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("message_channel_settings_button")
+            ) {
+                Icon(Icons.Filled.NotificationsActive, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Message Banner & Lock Screen Settings")
+            }
+            OutlinedButton(
+                onClick = { NotificationHelper.openAppNotificationSettings(context) },
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("System App Notification Settings")
+            }
+            OutlinedButton(
+                onClick = { NotificationHelper.openBatteryOptimizationSettings(context) },
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("battery_optimization_button")
+            ) {
+                Icon(Icons.Filled.BatteryChargingFull, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    if (hasUnrestrictedBattery) {
+                        "Battery Unrestricted (Active)"
+                    } else {
+                        "Allow Unrestricted Battery (Instant Delivery)"
+                    }
+                )
+            }
+            Button(
+                onClick = {
+                    val sent = NotificationHelper.sendTestWhatsAppNotification(
+                        context = context,
+                        wakeScreen = wakeScreenOnNotification
+                    )
+                    Toast.makeText(
+                        context,
+                        if (sent) "Test banner sent! Check notification shade or lock screen." else "Please enable Notifications permission first.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                },
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("test_whatsapp_notification_button")
+            ) {
+                Text("Test WhatsApp-Style Banner")
             }
         }
 
@@ -504,7 +678,7 @@ internal fun NotificationsSettingsSection(
                     Text("Floating Glass Popup Over Apps", style = MaterialTheme.typography.titleSmall)
                     Text(
                         if (hasOverlayPermission && floatingGlassEnabled) {
-                            "Active • Translucent glass popup over games & other apps"
+                            "Active • Shows over games/apps when unlocked + Lock-Screen banners always active"
                         } else if (floatingGlassEnabled) {
                             "Permission needed • Falling back to Heads-Up notifications"
                         } else {

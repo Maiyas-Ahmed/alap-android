@@ -328,6 +328,7 @@ fun UpdatesTabScreen(
             }
         }
 
+        val isGuest = myProfile?.isGuestAccount() == true
         // My Status Header Card
         Surface(
             shape = RoundedCornerShape(16.dp),
@@ -335,7 +336,7 @@ fun UpdatesTabScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 12.dp)
-                .clickable(enabled = allowStatusUpdates && !isReadOnlyMode) {
+                .clickable(enabled = !isGuest && allowStatusUpdates && !isReadOnlyMode) {
                     showCreateDialog = true
                 }
                 .testTag("create_status_card")
@@ -347,24 +348,26 @@ fun UpdatesTabScreen(
                 Box {
                     AlapAvatar(
                         avatarId = myProfile?.avatarId ?: "avatar_emerald",
-                        displayName = myProfile?.displayName ?: "Me",
+                        displayName = if (isGuest) "Guest" else (myProfile?.displayName ?: "Me"),
                         size = 50.dp
                     )
-                    Box(
-                        modifier = Modifier
-                            .size(20.dp)
-                            .align(Alignment.BottomEnd)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary)
-                            .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Add,
-                            contentDescription = "Post status",
-                            tint = Color.White,
-                            modifier = Modifier.size(13.dp)
-                        )
+                    if (!isGuest) {
+                        Box(
+                            modifier = Modifier
+                                .size(20.dp)
+                                .align(Alignment.BottomEnd)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary)
+                                .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Add,
+                                contentDescription = "Post status",
+                                tint = Color.White,
+                                modifier = Modifier.size(13.dp)
+                            )
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.width(14.dp))
@@ -376,6 +379,7 @@ fun UpdatesTabScreen(
                     )
                     Text(
                         text = when {
+                            isGuest -> "Guest mode • Upgrade to full account to post statuses"
                             isReadOnlyMode -> "Read-only mode active"
                             !allowStatusUpdates -> "Status updates temporarily paused"
                             else -> "Tap to share a lightweight 24h text update"

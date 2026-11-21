@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material.icons.filled.WorkspacePremium
@@ -186,6 +187,37 @@ fun TeacherBadge(
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFF9A5B00)
+            )
+        }
+    }
+}
+
+@Composable
+fun GuestBadge(
+    modifier: Modifier = Modifier,
+    label: String = "GUEST"
+) {
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = Color(0xFFFFEDE0),
+        modifier = modifier.testTag("guest_badge")
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Shield,
+                contentDescription = "Guest account with verified transparency",
+                tint = Color(0xFFB25000),
+                modifier = Modifier.size(11.dp)
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFFB25000)
             )
         }
     }

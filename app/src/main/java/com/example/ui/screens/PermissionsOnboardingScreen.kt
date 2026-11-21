@@ -26,10 +26,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.Button
@@ -82,6 +84,9 @@ fun PermissionsOnboardingScreen(
     var hasOverlay by remember {
         mutableStateOf(NotificationHelper.hasOverlayPermission(context))
     }
+    var hasUnrestrictedBattery by remember {
+        mutableStateOf(NotificationHelper.isIgnoringBatteryOptimizations(context))
+    }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -93,6 +98,7 @@ fun PermissionsOnboardingScreen(
                 ) == PackageManager.PERMISSION_GRANTED
                 hasInstallPackages = ApkUpdateManager.canRequestPackageInstalls(context)
                 hasOverlay = NotificationHelper.hasOverlayPermission(context)
+                hasUnrestrictedBattery = NotificationHelper.isIgnoringBatteryOptimizations(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -209,6 +215,24 @@ fun PermissionsOnboardingScreen(
                 isGranted = hasInstallPackages,
                 buttonLabel = "Allow App Install",
                 onAction = { ApkUpdateManager.openInstallPermissionSettings(context) }
+            )
+
+            PermissionSetupCard(
+                icon = Icons.Filled.NotificationsActive,
+                title = "Lock Screen & Heads-Up Banners",
+                subtitle = "হোয়াটসঅ্যাপের মতো লক স্ক্রিনে ও স্ক্রিনের উপরে ব্যানার পেতে 'Pop on screen' ও 'Lock screen' চালু রাখুন।",
+                isGranted = false,
+                buttonLabel = "Check Lock Screen & Banner Settings",
+                onAction = { NotificationHelper.openMessageChannelSettings(context) }
+            )
+
+            PermissionSetupCard(
+                icon = Icons.Filled.BatteryChargingFull,
+                title = "Instant Background Alerts (Battery)",
+                subtitle = "অ্যাপ পুরোপুরি বন্ধ থাকলেও সাথে সাথে মেসেজ রিং ও ব্যানার পেতে ব্যাটারি সেভার 'Unrestricted' করুন।",
+                isGranted = hasUnrestrictedBattery,
+                buttonLabel = "Allow Unrestricted Battery",
+                onAction = { NotificationHelper.openBatteryOptimizationSettings(context) }
             )
 
             PermissionSetupCard(

@@ -1,6 +1,7 @@
 package com.example.data.repository
 
 import android.content.Context
+import android.os.Build
 import com.example.data.firestore.AlapFirestoreProvider
 import com.example.data.firestore.OperationType
 import com.example.data.firestore.handleFirestoreError
@@ -109,15 +110,16 @@ class AlapRepository(private val db: FirebaseFirestore) {
             )
             userRef.set(profilePayload).await()
         } else {
-            val hideOnline = existing.getBoolean("hideOnlineStatus") ?: false
+            val isGuest = existing.getString("accountType") == "guest"
+            val hideOnline = if (isGuest) false else (existing.getBoolean("hideOnlineStatus") ?: false)
             val updates = mutableMapOf<String, Any>(
                 "isOnline" to !hideOnline,
                 "lastSeenAt" to FieldValue.serverTimestamp(),
                 "updatedAt" to FieldValue.serverTimestamp()
             )
             if (!existing.contains("publicPhoneNumber")) updates["publicPhoneNumber"] = ""
-            if (!existing.contains("publicUserId")) updates["publicUserId"] = defaultAlapId
-            if (!existing.contains("hidePhoneNumber")) updates["hidePhoneNumber"] = true
+            if (!existing.contains("publicUserId")) updates["publicUserId"] = if (isGuest) "" else defaultAlapId
+            if (!existing.contains("hidePhoneNumber")) updates["hidePhoneNumber"] = !isGuest
             if (!existing.contains("hideUserId")) updates["hideUserId"] = false
             if (!existing.contains("hideOnlineStatus")) updates["hideOnlineStatus"] = false
             if (!existing.contains("hideAbout")) updates["hideAbout"] = false
@@ -169,6 +171,90 @@ class AlapRepository(private val db: FirebaseFirestore) {
     }.onFailure { e ->
         if (e is CancellationException) throw e
         handleFirestoreError(e, OperationType.WRITE, "users/$uid")
+    }
+
+    suspend fun activateGuestAccount(email: String): Result<Unit> = runCatching {
+        val uid = requireUserId()
+        val safeEmail = email.trim().take(160)
+        val deviceInfo = "${Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${Build.MODEL} • Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})".take(160)
+        val userRef = db.collection("users").document(uid)
+        val existing = userRef.get().await()
+        val existingCompleted = existing.exists() && existing.getBoolean("isProfileCompleted") == true
+        val existingType = existing.getString("accountType") ?: "personal"
+
+        if (existingCompleted && existingType != "guest") {
+            throw IllegalStateException("This Gmail already has a full Alap account. Use another Gmail to open a separate Guest account.")
+        }
+
+        val existingJoinedAt = existing.getLong("guestJoinedAtEpochMs") ?: 0L
+        val joinedAt = if (existingJoinedAt > 0L) existingJoinedAt else System.currentTimeMillis()
+
+        if (!existing.exists()) {
+            val payload = mapOf(
+                "userId" to uid,
+                "displayName" to "Guest",
+                "handle" to "",
+                "about" to "Guest account • Verified anti-fraud transparency active",
+                "avatarId" to AlapConstants.AVATAR_KEYS.first(),
+                "publicPhoneNumber" to "",
+                "publicUserId" to "",
+                "hidePhoneNumber" to false,
+                "hideUserId" to false,
+                "hideOnlineStatus" to false,
+                "hideAbout" to false,
+                "hideReadReceipts" to false,
+                "blockedUids" to emptyList<String>(),
+                "isProfileCompleted" to true,
+                "isDiscoverable" to true,
+                "isOnline" to true,
+                "isVerified" to false,
+                "isSuspended" to false,
+                "isStudent" to false,
+                "studentClass" to "",
+                "studentSubject" to "",
+                "accountType" to "guest",
+                "isTeacher" to false,
+                "teacherSubject" to "",
+                "guestEmail" to safeEmail,
+                "guestDeviceInfo" to deviceInfo,
+                "guestJoinedAtEpochMs" to joinedAt,
+                "lastSeenAt" to FieldValue.serverTimestamp(),
+                "createdAt" to FieldValue.serverTimestamp(),
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+            userRef.set(payload).await()
+        } else {
+            userRef.update(
+                mapOf(
+                    "displayName" to "Guest",
+                    "handle" to "",
+                    "about" to "Guest account • Verified anti-fraud transparency active",
+                    "publicPhoneNumber" to "",
+                    "publicUserId" to "",
+                    "hidePhoneNumber" to false,
+                    "hideUserId" to false,
+                    "hideOnlineStatus" to false,
+                    "hideAbout" to false,
+                    "hideReadReceipts" to false,
+                    "isProfileCompleted" to true,
+                    "isDiscoverable" to true,
+                    "isOnline" to true,
+                    "isStudent" to false,
+                    "studentClass" to "",
+                    "studentSubject" to "",
+                    "accountType" to "guest",
+                    "guestEmail" to safeEmail,
+                    "guestDeviceInfo" to deviceInfo,
+                    "guestJoinedAtEpochMs" to joinedAt,
+                    "lastSeenAt" to FieldValue.serverTimestamp(),
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+        }
+        Unit
+    }.onFailure { e ->
+        if (e is CancellationException) throw e
+        handleFirestoreError(e, OperationType.WRITE, "users/${auth.currentUser?.uid}")
     }
 
     suspend fun updateProfileAndPrivacy(
@@ -604,6 +690,9 @@ class AlapRepository(private val db: FirebaseFirestore) {
     ): Result<String> = runCatching {
         val uid = requireUserId()
         require(uid == currentUser.userId)
+        require((currentUser.accountType == "guest") == (otherUser.accountType == "guest")) {
+            "Guest accounts can only chat with other Guest accounts."
+        }
         val chatId = buildDirectChatId(currentUser.userId, otherUser.userId)
         val chatRef = db.collection("chats").document(chatId)
         val existing = chatRef.get().await()
@@ -661,6 +750,9 @@ class AlapRepository(private val db: FirebaseFirestore) {
         studyLockToAdmin: Boolean = false
     ): Result<String> = runCatching {
         val uid = requireUserId()
+        require(currentUser.accountType != "guest") {
+            "Guest accounts can only message other Guest accounts in direct chats."
+        }
         val participants = (listOf(uid) + memberUids).distinct().take(50)
         require(participants.size >= 2) { "Select at least one member to create a group." }
         val docRef = db.collection("chats").document()

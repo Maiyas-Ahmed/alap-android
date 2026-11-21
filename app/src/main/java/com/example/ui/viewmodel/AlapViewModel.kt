@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -88,6 +89,13 @@ class AlapViewModel(
 
     val floatingGlassEnabled: StateFlow<Boolean> = prefs.floatingGlassEnabled
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), false)
+
+    val wakeScreenOnNotification: StateFlow<Boolean> = prefs.wakeScreenOnNotification
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), true)
+
+    val pendingGuestLogin: StateFlow<Boolean?> = prefs.pendingGuestLogin
+        .map<Boolean, Boolean?> { it }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     val screenSecurityEnabled: StateFlow<Boolean> = prefs.screenSecurityEnabled
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), false)
@@ -185,11 +193,28 @@ class AlapViewModel(
 
     init {
         viewModelScope.launch {
-            repository.ensureUserProfileAndPrivateInfo(
-                uid = currentUserId,
-                displayName = initialDisplayName,
-                email = currentUserEmail
-            )
+            val isPendingGuest = prefs.pendingGuestLogin.first()
+            if (isPendingGuest) {
+                val res = repository.activateGuestAccount(currentUserEmail)
+                prefs.setPendingGuestLogin(false)
+                res.onSuccess {
+                    prefs.setVerifiedOtpUid(currentUserId)
+                    _actionMessage.value = "Guest account active • Only Guest-to-Guest chat enabled"
+                }.onFailure { e ->
+                    _actionMessage.value = e.localizedMessage ?: "Could not switch existing full account to Guest"
+                    repository.ensureUserProfileAndPrivateInfo(
+                        uid = currentUserId,
+                        displayName = initialDisplayName,
+                        email = currentUserEmail
+                    )
+                }
+            } else {
+                repository.ensureUserProfileAndPrivateInfo(
+                    uid = currentUserId,
+                    displayName = initialDisplayName,
+                    email = currentUserEmail
+                )
+            }
         }
         refreshRemoteVersionInfo(silent = true)
     }
@@ -468,6 +493,24 @@ class AlapViewModel(
 
     fun setFloatingGlassEnabled(enabled: Boolean) {
         viewModelScope.launch { prefs.setFloatingGlassEnabled(enabled) }
+    }
+
+    fun setWakeScreenOnNotification(enabled: Boolean) {
+        viewModelScope.launch { prefs.setWakeScreenOnNotification(enabled) }
+    }
+
+    fun activateGuestModeIfPending() {
+        viewModelScope.launch {
+            if (!prefs.pendingGuestLogin.first()) return@launch
+            val res = repository.activateGuestAccount(currentUserEmail)
+            prefs.setPendingGuestLogin(false)
+            res.onSuccess {
+                prefs.setVerifiedOtpUid(currentUserId)
+                _actionMessage.value = "Guest account active • Only Guest-to-Guest chat enabled"
+            }.onFailure { e ->
+                _actionMessage.value = e.localizedMessage ?: "Could not switch existing full account to Guest"
+            }
+        }
     }
 
     fun setScreenSecurityEnabled(enabled: Boolean) {

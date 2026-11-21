@@ -1148,5 +1148,216 @@ test("Teacher Plans & Billing Ledger: admin manages plans and assigns teacher pl
   await assertFails(bobDb.collection("teacher_billing_records").doc("rec_1").get());
 });
 
+test("Guest accounts: anti-fraud transparency enforced and Guests can only chat with other Guests", async () => {
+  const GUEST_1_UID = "guest_uid_001";
+  const GUEST_2_UID = "guest_uid_002";
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID, { email: "alice@gmail.com", email_verified: true }).firestore();
+  const guest1Db = testEnv.authenticatedContext(GUEST_1_UID, { email: "guest1@gmail.com", email_verified: true }).firestore();
+  const guest2Db = testEnv.authenticatedContext(GUEST_2_UID, { email: "guest2@gmail.com", email_verified: true }).firestore();
+  const ts = nowTs();
+
+  await assertSucceeds(
+    aliceDb.collection("users").doc(ALICE_UID).set({
+      ...makeUserProfile(ALICE_UID, "Alice"),
+      accountType: "personal",
+    })
+  );
+
+  // Guest cannot spoof another Gmail in guestEmail
+  await assertFails(
+    guest1Db.collection("users").doc(GUEST_1_UID).set({
+      ...makeUserProfile(GUEST_1_UID, "Guest"),
+      handle: "",
+      publicUserId: "",
+      hidePhoneNumber: false,
+      hideUserId: false,
+      hideOnlineStatus: false,
+      hideAbout: false,
+      accountType: "guest",
+      guestEmail: "spoofed@gmail.com",
+      guestDeviceInfo: "Pixel 8 • Android 14",
+      guestJoinedAtEpochMs: Date.now(),
+    })
+  );
+
+  // Guest cannot hide online status or about info
+  await assertFails(
+    guest1Db.collection("users").doc(GUEST_1_UID).set({
+      ...makeUserProfile(GUEST_1_UID, "Guest"),
+      handle: "",
+      publicUserId: "",
+      hidePhoneNumber: false,
+      hideUserId: false,
+      hideOnlineStatus: true,
+      hideAbout: false,
+      accountType: "guest",
+      guestEmail: "guest1@gmail.com",
+      guestDeviceInfo: "Pixel 8 • Android 14",
+      guestJoinedAtEpochMs: Date.now(),
+    })
+  );
+
+  // Valid Guest 1 & Guest 2 profiles succeed with empty handle & full transparency
+  await assertSucceeds(
+    guest1Db.collection("users").doc(GUEST_1_UID).set({
+      ...makeUserProfile(GUEST_1_UID, "Guest"),
+      handle: "",
+      publicUserId: "",
+      hidePhoneNumber: false,
+      hideUserId: false,
+      hideOnlineStatus: false,
+      hideAbout: false,
+      accountType: "guest",
+      guestEmail: "guest1@gmail.com",
+      guestDeviceInfo: "Pixel 8 • Android 14",
+      guestJoinedAtEpochMs: Date.now(),
+    })
+  );
+  await assertSucceeds(
+    guest2Db.collection("users").doc(GUEST_2_UID).set({
+      ...makeUserProfile(GUEST_2_UID, "Guest"),
+      handle: "",
+      publicUserId: "",
+      hidePhoneNumber: false,
+      hideUserId: false,
+      hideOnlineStatus: false,
+      hideAbout: false,
+      accountType: "guest",
+      guestEmail: "guest2@gmail.com",
+      guestDeviceInfo: "Samsung S24 • Android 14",
+      guestJoinedAtEpochMs: Date.now(),
+    })
+  );
+
+  // Regular user Alice can read Guest 1's full transparency info
+  await assertSucceeds(aliceDb.collection("users").doc(GUEST_1_UID).get());
+
+  // Guest 1 CANNOT start a direct chat with regular user Alice (and Alice cannot start one with Guest 1)
+  await assertFails(
+    guest1Db.collection("chats").doc("dm_guest1_alice").set({
+      chatType: "direct",
+      title: "",
+      description: "",
+      avatarId: "avatar_emerald",
+      participantUids: [GUEST_1_UID, ALICE_UID],
+      adminUids: [],
+      createdBy: GUEST_1_UID,
+      lastMessageText: "Hi Alice",
+      lastMessageSenderId: GUEST_1_UID,
+      lastMessageType: "text",
+      lastMessageAt: ts,
+      typingUids: [],
+      pinnedByUids: [],
+      mutedByUids: [],
+      archivedByUids: [],
+      unreadCounts: {},
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+  await assertFails(
+    aliceDb.collection("chats").doc("dm_alice_guest1").set({
+      chatType: "direct",
+      title: "",
+      description: "",
+      avatarId: "avatar_emerald",
+      participantUids: [ALICE_UID, GUEST_1_UID],
+      adminUids: [],
+      createdBy: ALICE_UID,
+      lastMessageText: "Hi Guest",
+      lastMessageSenderId: ALICE_UID,
+      lastMessageType: "text",
+      lastMessageAt: ts,
+      typingUids: [],
+      pinnedByUids: [],
+      mutedByUids: [],
+      archivedByUids: [],
+      unreadCounts: {},
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+
+  // Guest 1 CANNOT create a group chat or post a status
+  await assertFails(
+    guest1Db.collection("chats").doc("grp_guest").set({
+      chatType: "group",
+      title: "Guest Group",
+      description: "",
+      avatarId: "group_default",
+      participantUids: [GUEST_1_UID, GUEST_2_UID],
+      adminUids: [GUEST_1_UID],
+      createdBy: GUEST_1_UID,
+      lastMessageText: "Hi",
+      lastMessageSenderId: GUEST_1_UID,
+      lastMessageType: "system",
+      lastMessageAt: ts,
+      typingUids: [],
+      pinnedByUids: [],
+      mutedByUids: [],
+      archivedByUids: [],
+      unreadCounts: {},
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+  await assertFails(
+    guest1Db.collection("statuses").doc("st_guest").set({
+      userId: GUEST_1_UID,
+      authorName: "Guest",
+      authorAvatarId: "avatar_emerald",
+      text: "Hello",
+      styleKey: "emerald",
+      isPublic: true,
+      viewerUids: [],
+      expiresAtEpochMs: Date.now() + 86400000,
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+
+  // Guest 1 CAN chat and exchange messages with Guest 2
+  await assertSucceeds(
+    guest1Db.collection("chats").doc("dm_guest1_guest2").set({
+      chatType: "direct",
+      title: "",
+      description: "",
+      avatarId: "avatar_emerald",
+      participantUids: [GUEST_1_UID, GUEST_2_UID],
+      adminUids: [],
+      createdBy: GUEST_1_UID,
+      lastMessageText: "Hello Guest 2!",
+      lastMessageSenderId: GUEST_1_UID,
+      lastMessageType: "text",
+      lastMessageAt: ts,
+      typingUids: [],
+      pinnedByUids: [],
+      mutedByUids: [],
+      archivedByUids: [],
+      unreadCounts: { [GUEST_2_UID]: 1 },
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+  await assertSucceeds(
+    guest1Db.collection("chats").doc("dm_guest1_guest2").collection("messages").doc("m1").set({
+      chatId: "dm_guest1_guest2",
+      senderId: GUEST_1_UID,
+      senderName: "Guest",
+      text: "Hello Guest 2!",
+      messageType: "text",
+      isForwarded: false,
+      isEdited: false,
+      isDeleted: false,
+      participantUids: [GUEST_1_UID, GUEST_2_UID],
+      readByUids: [GUEST_1_UID],
+      starredByUids: [],
+      reactions: {},
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+});
+
 
 

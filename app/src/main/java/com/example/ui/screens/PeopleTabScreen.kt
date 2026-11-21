@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.provider.ContactsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -27,7 +29,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.GroupAdd
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -36,6 +40,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -50,33 +55,39 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.data.model.UiState
 import com.example.data.model.UserProfile
 import com.example.ui.components.AlapAvatar
+import com.example.ui.components.GuestBadge
 import com.example.ui.components.StudentBadge
 import com.example.ui.components.TeacherBadge
 import com.example.ui.components.VerifiedBadge
 import com.example.ui.theme.LocalAlapColors
 
-private enum class PeopleFilter { ALL, STUDENTS, TEACHERS }
+private enum class PeopleFilter { ALL, GUESTS, STUDENTS, TEACHERS }
 
 @Composable
 fun PeopleTabScreen(
     currentUserId: String,
+    currentUserProfile: UserProfile? = null,
     usersState: UiState<List<UserProfile>>,
     searchQuery: String,
     allowGroupCreation: Boolean,
     isReadOnlyMode: Boolean,
     onUserClick: (UserProfile) -> Unit,
+    onInspectUser: (UserProfile) -> Unit = {},
     onCreateGroup: (title: String, description: String, memberUids: List<String>, isStudyGroup: Boolean, studyLockToAdmin: Boolean) -> Unit,
     onJoinStudyCode: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
+    val isCurrentGuest = currentUserProfile?.isGuestAccount() == true
     var showCreateGroupDialog by remember { mutableStateOf(false) }
     var showJoinStudyCodeDialog by remember { mutableStateOf(false) }
     var activeFilter by remember { mutableStateOf(PeopleFilter.ALL) }
@@ -103,152 +114,191 @@ fun PeopleTabScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+        if (isCurrentGuest) {
             Surface(
                 shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+                color = Color(0xFFFFEDE0),
+                border = BorderStroke(1.dp, Color(0xFFB25000).copy(alpha = 0.3f)),
                 modifier = Modifier
-                    .weight(1f)
-                    .clickable(enabled = allowGroupCreation && !isReadOnlyMode) {
-                        showCreateGroupDialog = true
-                    }
-                    .testTag("new_group_button")
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 Row(
                     modifier = Modifier.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.GroupAdd,
-                        contentDescription = "New group",
-                        tint = MaterialTheme.colorScheme.primary
+                        imageVector = Icons.Filled.Shield,
+                        contentDescription = null,
+                        tint = Color(0xFFB25000)
                     )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = "New Group",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                        Text(
-                            text = "Create conversation",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                        )
-                    }
+                    Text(
+                        text = "Guest Mode: You can chat only with other Guest accounts. Verified Gmail & device info are visible to prevent scams.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF7A3600)
+                    )
                 }
             }
-
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant,
+        } else {
+            Row(
                 modifier = Modifier
-                    .weight(1f)
-                    .clickable(enabled = !isReadOnlyMode) { showJoinStudyCodeDialog = true }
-                    .testTag("join_class_code_button")
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(
-                    modifier = Modifier.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.School,
-                        contentDescription = "Join Class Code",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = "Class Code",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = "Join Study Group",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-
-            if (!hasContactPermission) {
                 Surface(
                     shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
                     modifier = Modifier
                         .weight(1f)
-                        .clickable { contactPermissionLauncher.launch(Manifest.permission.READ_CONTACTS) }
-                        .testTag("sync_contacts_button")
+                        .clickable(enabled = allowGroupCreation && !isReadOnlyMode) {
+                            showCreateGroupDialog = true
+                        }
+                        .testTag("new_group_button")
                 ) {
                     Row(
                         modifier = Modifier.padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.Contacts,
-                            contentDescription = "Sync contacts",
+                            imageVector = Icons.Filled.GroupAdd,
+                            contentDescription = "New group",
                             tint = MaterialTheme.colorScheme.primary
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text(
-                                text = "Sync Contacts",
+                                text = "New Group",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Text(
+                                text = "Create conversation",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                            )
+                        }
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable(enabled = !isReadOnlyMode) { showJoinStudyCodeDialog = true }
+                        .testTag("join_class_code_button")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.School,
+                            contentDescription = "Join Class Code",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "Class Code",
                                 style = MaterialTheme.typography.titleSmall,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "Phonebook",
+                                text = "Join Study Group",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
                 }
-            }
-        }
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            FilterChip(
-                selected = activeFilter == PeopleFilter.ALL,
-                onClick = { activeFilter = PeopleFilter.ALL },
-                label = { Text("All People") },
-                modifier = Modifier.testTag("people_filter_all")
-            )
-            FilterChip(
-                selected = activeFilter == PeopleFilter.STUDENTS,
-                onClick = { activeFilter = PeopleFilter.STUDENTS },
-                leadingIcon = {
-                    Icon(Icons.Filled.School, contentDescription = null)
-                },
-                label = { Text("Students (ST)") },
-                modifier = Modifier.testTag("people_filter_students")
-            )
-            FilterChip(
-                selected = activeFilter == PeopleFilter.TEACHERS,
-                onClick = { activeFilter = PeopleFilter.TEACHERS },
-                leadingIcon = {
-                    Icon(Icons.Filled.WorkspacePremium, contentDescription = null)
-                },
-                label = { Text("Teachers (TR)") },
-                modifier = Modifier.testTag("people_filter_teachers")
-            )
+                if (!hasContactPermission) {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { contactPermissionLauncher.launch(Manifest.permission.READ_CONTACTS) }
+                            .testTag("sync_contacts_button")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Contacts,
+                                contentDescription = "Sync contacts",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Sync Contacts",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Phonebook",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FilterChip(
+                    selected = activeFilter == PeopleFilter.ALL,
+                    onClick = { activeFilter = PeopleFilter.ALL },
+                    label = { Text("All People") },
+                    modifier = Modifier.testTag("people_filter_all")
+                )
+                FilterChip(
+                    selected = activeFilter == PeopleFilter.GUESTS,
+                    onClick = { activeFilter = PeopleFilter.GUESTS },
+                    leadingIcon = {
+                        Icon(Icons.Filled.Shield, contentDescription = null)
+                    },
+                    label = { Text("Guests") },
+                    modifier = Modifier.testTag("people_filter_guests")
+                )
+                FilterChip(
+                    selected = activeFilter == PeopleFilter.STUDENTS,
+                    onClick = { activeFilter = PeopleFilter.STUDENTS },
+                    leadingIcon = {
+                        Icon(Icons.Filled.School, contentDescription = null)
+                    },
+                    label = { Text("Students (ST)") },
+                    modifier = Modifier.testTag("people_filter_students")
+                )
+                FilterChip(
+                    selected = activeFilter == PeopleFilter.TEACHERS,
+                    onClick = { activeFilter = PeopleFilter.TEACHERS },
+                    leadingIcon = {
+                        Icon(Icons.Filled.WorkspacePremium, contentDescription = null)
+                    },
+                    label = { Text("Teachers (TR)") },
+                    modifier = Modifier.testTag("people_filter_teachers")
+                )
+            }
         }
 
         Text(
             text = when {
+                isCurrentGuest -> "GUEST USERS (GUEST-TO-GUEST CHAT)"
+                activeFilter == PeopleFilter.GUESTS -> "GUEST ACCOUNTS (TRANSPARENT ANTI-FRAUD)"
                 activeFilter == PeopleFilter.STUDENTS -> "STUDENTS ON ALAP (ST)"
                 activeFilter == PeopleFilter.TEACHERS -> "VERIFIED TEACHERS ON ALAP (TR)"
                 hasContactPermission && deviceContactPhones.isNotEmpty() -> "PHONEBOOK & ALAP CONTACTS"
@@ -273,17 +323,25 @@ fun PeopleTabScreen(
             }
 
             is UiState.Success -> {
-                val otherUsers = remember(usersState.data, currentUserId, searchQuery, deviceContactPhones, activeFilter) {
+                val otherUsers = remember(usersState.data, currentUserId, searchQuery, deviceContactPhones, activeFilter, isCurrentGuest) {
                     val q = searchQuery.trim().lowercase()
                     usersState.data.filter { user ->
-                        val roleMatch = when (activeFilter) {
-                            PeopleFilter.ALL -> true
-                            PeopleFilter.STUDENTS -> user.isStudent
-                            PeopleFilter.TEACHERS -> user.isTeacher
+                        val guestScopeMatch = if (isCurrentGuest) user.isGuestAccount() else true
+                        val roleMatch = if (isCurrentGuest) {
+                            true
+                        } else {
+                            when (activeFilter) {
+                                PeopleFilter.ALL -> true
+                                PeopleFilter.GUESTS -> user.isGuestAccount()
+                                PeopleFilter.STUDENTS -> user.isStudent
+                                PeopleFilter.TEACHERS -> user.isTeacher
+                            }
                         }
-                        roleMatch && user.userId != currentUserId && !user.isSuspended && (
+                        guestScopeMatch && roleMatch && user.userId != currentUserId && !user.isSuspended && (
                             q.isBlank() ||
                                 user.displayName.lowercase().contains(q) ||
+                                user.guestEmail.lowercase().contains(q) ||
+                                user.guestDeviceInfo.lowercase().contains(q) ||
                                 (!user.hideUserId && user.handle.lowercase().contains(q)) ||
                                 user.publicPhoneNumber.contains(q) ||
                                 (user.isTeacher && user.teacherSubject.lowercase().contains(q)) ||
@@ -300,10 +358,10 @@ fun PeopleTabScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = if (searchQuery.isNotBlank()) {
-                                "No contacts match \"$searchQuery\"."
-                            } else {
-                                "No other contacts have signed in yet.\nInvite friends to sign in with their Gmail on Alap!"
+                            text = when {
+                                searchQuery.isNotBlank() -> "No contacts match \"$searchQuery\"."
+                                isCurrentGuest -> "No other Guest users are active right now.\nAnother user in Guest mode can chat with you here."
+                                else -> "No other contacts have signed in yet.\nInvite friends to sign in with their Gmail on Alap!"
                             },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -312,56 +370,73 @@ fun PeopleTabScreen(
                 } else {
                     LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
                         items(otherUsers, key = { it.userId }) { user ->
-                            val isPhoneMatched = deviceContactPhones.any { p -> user.publicPhoneNumber.contains(p) || (user.publicPhoneNumber.isNotBlank() && p.contains(user.publicPhoneNumber)) }
-                            val subtitleParts = buildList {
-                                if (isPhoneMatched) add("In phone contacts")
-                                if (user.isTeacher && user.teacherSubject.isNotBlank()) add("Teacher • ${user.teacherSubject}")
-                                if (user.isStudent && user.studentClass.isNotBlank()) add(user.studentClass)
-                                if (user.isStudent && user.studentSubject.isNotBlank()) add(user.studentSubject)
-                                if (!user.hideUserId && user.handle.isNotBlank()) {
-                                    add("@${user.handle}")
-                                }
-                                if (!user.hideAbout && user.about.isNotBlank()) {
-                                    add(user.about)
-                                }
+                            val isUserGuest = user.isGuestAccount()
+                            val isPhoneMatched = !isUserGuest && deviceContactPhones.any { p ->
+                                user.publicPhoneNumber.contains(p) || (user.publicPhoneNumber.isNotBlank() && p.contains(user.publicPhoneNumber))
                             }
-                            val subtitleText = if (subtitleParts.isEmpty()) {
-                                "Alap contact"
+                            val subtitleText = if (isUserGuest) {
+                                listOfNotNull(
+                                    user.guestEmail.takeIf { it.isNotBlank() } ?: "Verified Gmail",
+                                    user.guestDeviceInfo.takeIf { it.isNotBlank() }
+                                ).joinToString(" • ")
                             } else {
-                                subtitleParts.joinToString(" • ")
+                                val subtitleParts = buildList {
+                                    if (isPhoneMatched) add("In phone contacts")
+                                    if (user.isTeacher && user.teacherSubject.isNotBlank()) add("Teacher • ${user.teacherSubject}")
+                                    if (user.isStudent && user.studentClass.isNotBlank()) add(user.studentClass)
+                                    if (user.isStudent && user.studentSubject.isNotBlank()) add(user.studentSubject)
+                                    if (!user.hideUserId && user.handle.isNotBlank()) {
+                                        add("@${user.handle}")
+                                    }
+                                    if (!user.hideAbout && user.about.isNotBlank()) {
+                                        add(user.about)
+                                    }
+                                }
+                                if (subtitleParts.isEmpty()) "Alap contact" else subtitleParts.joinToString(" • ")
                             }
 
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { onUserClick(user) }
+                                    .clickable {
+                                        if (isUserGuest && !isCurrentGuest) {
+                                            onInspectUser(user)
+                                        } else {
+                                            onUserClick(user)
+                                        }
+                                    }
                                     .padding(horizontal = 16.dp, vertical = 12.dp)
                                     .testTag("contact_row_${user.userId}"),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 AlapAvatar(
                                     avatarId = user.avatarId,
-                                    displayName = user.displayName,
-                                    isOnline = user.isOnline && !user.hideOnlineStatus,
+                                    displayName = if (isUserGuest) "Guest" else user.displayName,
+                                    isOnline = user.isOnline && (isUserGuest || !user.hideOnlineStatus),
                                     size = 48.dp
                                 )
                                 Spacer(modifier = Modifier.width(14.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(
-                                            text = user.displayName,
+                                            text = if (isUserGuest) "Guest" else user.displayName,
                                             style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Medium,
                                             color = MaterialTheme.colorScheme.onSurface
                                         )
-                                        if (user.isVerified) {
+                                        if (isUserGuest) {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            GuestBadge()
+                                        }
+                                        if (!isUserGuest && user.isVerified) {
                                             Spacer(modifier = Modifier.width(4.dp))
                                             VerifiedBadge()
                                         }
-                                        if (user.isTeacher) {
+                                        if (!isUserGuest && user.isTeacher) {
                                             Spacer(modifier = Modifier.width(6.dp))
                                             TeacherBadge()
                                         }
-                                        if (user.isStudent) {
+                                        if (!isUserGuest && user.isStudent) {
                                             Spacer(modifier = Modifier.width(6.dp))
                                             StudentBadge()
                                         }
@@ -373,6 +448,18 @@ fun PeopleTabScreen(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
+                                }
+                                if (isUserGuest) {
+                                    IconButton(
+                                        onClick = { onInspectUser(user) },
+                                        modifier = Modifier.testTag("inspect_guest_${user.userId}")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Info,
+                                            contentDescription = "View Guest Anti-Fraud Details",
+                                            tint = Color(0xFFB25000)
+                                        )
+                                    }
                                 }
                             }
                             HorizontalDivider(
@@ -387,8 +474,8 @@ fun PeopleTabScreen(
         }
     }
 
-    if (showCreateGroupDialog && usersState is UiState.Success) {
-        val candidates = usersState.data.filter { it.userId != currentUserId && !it.isSuspended }
+    if (!isCurrentGuest && showCreateGroupDialog && usersState is UiState.Success) {
+        val candidates = usersState.data.filter { it.userId != currentUserId && !it.isSuspended && !it.isGuestAccount() }
         var groupTitle by remember { mutableStateOf("") }
         var groupDesc by remember { mutableStateOf("") }
         var isStudyGroup by remember { mutableStateOf(false) }

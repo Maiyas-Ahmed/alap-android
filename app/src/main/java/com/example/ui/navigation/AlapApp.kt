@@ -1,6 +1,7 @@
 package com.example.ui.navigation
 
 import android.app.Application
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -91,6 +92,7 @@ import com.example.data.local.LocalPreferencesManager
 import com.example.data.local.room.AlapRoomDatabase
 import com.example.data.model.AlapConstants
 import com.example.data.model.UiState
+import com.example.data.model.UserProfile
 import com.example.data.repository.AlapRepository
 import com.example.service.GlassOverlayService
 import com.example.ui.components.GlassNotificationBanner
@@ -100,10 +102,12 @@ import com.example.ui.screens.AppLockScreen
 import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.ChatDetailScreen
 import com.example.ui.screens.ChatsTabScreen
+import com.example.ui.screens.ContactInfoDialog
 import com.example.ui.screens.OtpVerificationScreen
 import com.example.ui.screens.PeopleTabScreen
 import com.example.ui.screens.PermissionsOnboardingScreen
 import com.example.ui.screens.ProfileSetupScreen
+import com.example.ui.screens.ReportUserDialog
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.StarredMessagesScreen
 import com.example.ui.screens.UpdatesTabScreen
@@ -242,6 +246,8 @@ private fun AuthenticatedAlapShell(
     val lastNotifiedId by mainViewModel.lastNotifiedAnnouncementId.collectAsStateWithLifecycle()
     val notificationsEnabled by mainViewModel.notificationsEnabled.collectAsStateWithLifecycle()
     val floatingGlassEnabled by mainViewModel.floatingGlassEnabled.collectAsStateWithLifecycle()
+    val wakeScreenOnNotification by mainViewModel.wakeScreenOnNotification.collectAsStateWithLifecycle()
+    val pendingGuestLogin by mainViewModel.pendingGuestLogin.collectAsStateWithLifecycle()
     val screenSecurityEnabled by mainViewModel.screenSecurityEnabled.collectAsStateWithLifecycle()
     val permissionsOnboardingDone by mainViewModel.permissionsOnboardingDone.collectAsStateWithLifecycle()
     val localOnlyRelayMode by mainViewModel.localOnlyRelayMode.collectAsStateWithLifecycle()
@@ -254,6 +260,12 @@ private fun AuthenticatedAlapShell(
     val statusesState by mainViewModel.statuses.collectAsStateWithLifecycle()
     val starredMessages by mainViewModel.starredMessages.collectAsStateWithLifecycle()
     val actionMessage by mainViewModel.actionMessage.collectAsStateWithLifecycle()
+
+    LaunchedEffect(pendingGuestLogin, uid) {
+        if (pendingGuestLogin == true) {
+            mainViewModel.activateGuestModeIfPending()
+        }
+    }
 
     LaunchedEffect(uid, isOnline) {
         if (isOnline) {
@@ -283,6 +295,7 @@ private fun AuthenticatedAlapShell(
         (remoteInfo?.forceUpdateRequired == true)
 
     var isAppUnlocked by remember(uid) { mutableStateOf(false) }
+    var showGuestUpgradeSetup by remember(uid) { mutableStateOf(false) }
     var inAppBanner by remember { mutableStateOf<InAppGlassBannerData?>(null) }
 
     LaunchedEffect(screenSecurityEnabled) {
@@ -297,9 +310,10 @@ private fun AuthenticatedAlapShell(
         }
     }
 
-    // Gate 1: Wait for DataStore OTP check, then enforce Gmail OTP or Inbox Link verification
+    // Gate 1: Wait for DataStore OTP check, then enforce Gmail OTP or Inbox Link verification (bypassed in Guest Mode)
     val currentOtpUid = verifiedOtpUid
-    if (currentOtpUid == null) {
+    val isGuestAccount = myProfile?.isGuestAccount() == true
+    if (currentOtpUid == null || pendingGuestLogin == null) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -311,7 +325,7 @@ private fun AuthenticatedAlapShell(
         return
     }
 
-    if (currentOtpUid != uid) {
+    if (currentOtpUid != uid && !isGuestAccount && pendingGuestLogin != true) {
         OtpVerificationScreen(
             email = email,
             isSending = otpSending,
@@ -483,7 +497,10 @@ private fun AuthenticatedAlapShell(
 
         is UiState.Success -> {
             val loadedProfile = profileRes.data
-            if (loadedProfile == null || !loadedProfile.isProfileCompleted) {
+            if (showGuestUpgradeSetup || (pendingGuestLogin != true && (loadedProfile == null || !loadedProfile.isProfileCompleted))) {
+                BackHandler(enabled = showGuestUpgradeSetup) {
+                    showGuestUpgradeSetup = false
+                }
                 ProfileSetupScreen(
                     uid = uid,
                     email = email,
@@ -512,6 +529,7 @@ private fun AuthenticatedAlapShell(
                             teacherSubject = teacherSubject,
                             markProfileCompleted = true
                         )
+                        showGuestUpgradeSetup = false
                     }
                 )
                 return
@@ -578,9 +596,17 @@ private fun AuthenticatedAlapShell(
         }
     }
 
-    // Dual Notification System: Incoming Messages Observer (Glass Banner / Floating Overlay / Heads-Up)
+    // Dual Notification System: WhatsApp-style Heads-Up + Lock Screen + Optional Floating Glass Overlay
     var baselineChatTimes by remember(uid) { mutableStateOf<Map<String, Long>?>(null) }
-    LaunchedEffect(allChats, activeChatId, isAppInForeground, notificationsEnabled, floatingGlassEnabled, blockedUids) {
+    LaunchedEffect(
+        allChats,
+        activeChatId,
+        isAppInForeground,
+        notificationsEnabled,
+        floatingGlassEnabled,
+        wakeScreenOnNotification,
+        blockedUids
+    ) {
         val currentTimes = allChats.associate { c ->
             c.id to (c.lastMessageAt?.toDate()?.time ?: 0L)
         }
@@ -604,11 +630,15 @@ private fun AuthenticatedAlapShell(
         baselineChatTimes = currentTimes
 
         if (updatedChat != null) {
-            val senderName = if (updatedChat.chatType == "group") {
+            val isGroupChat = updatedChat.chatType == "group"
+            val senderUser = usersMap[updatedChat.lastMessageSenderId]
+            val directSenderName = if (senderUser?.isGuestAccount() == true) "Guest" else (senderUser?.displayName ?: "New Message")
+            val senderName = if (isGroupChat) {
                 updatedChat.title.ifBlank { "Group Chat" }
             } else {
-                usersMap[updatedChat.lastMessageSenderId]?.displayName ?: "New Message"
+                directSenderName
             }
+            val senderPersonName = if (isGroupChat) directSenderName else senderName
             val preview = updatedChat.lastMessageText.ifBlank { "Sent you a message" }
 
             if (isAppInForeground) {
@@ -622,21 +652,29 @@ private fun AuthenticatedAlapShell(
                     )
                 }
             } else {
-                if (floatingGlassEnabled && NotificationHelper.hasOverlayPermission(context)) {
-                    GlassOverlayService.showPopup(
-                        context = context,
-                        title = senderName,
-                        body = preview,
-                        badge = "Alap Message",
-                        chatId = updatedChat.id
-                    )
-                } else if (notificationsEnabled) {
+                val isLockedOrOff = NotificationHelper.isDeviceLockedOrScreenOff(context)
+                if (notificationsEnabled) {
                     NotificationHelper.showIncomingMessageNotification(
                         context = context,
                         chatId = updatedChat.id,
-                        senderName = senderName,
-                        preview = preview
+                        senderName = senderPersonName,
+                        preview = preview,
+                        isGroup = isGroupChat,
+                        conversationTitle = senderName,
+                        wakeScreen = wakeScreenOnNotification
                     )
+                }
+                if (!isLockedOrOff && floatingGlassEnabled && NotificationHelper.hasOverlayPermission(context)) {
+                    try {
+                        GlassOverlayService.showPopup(
+                            context = context,
+                            title = senderName,
+                            body = preview,
+                            badge = "Alap Message",
+                            chatId = updatedChat.id
+                        )
+                    } catch (_: Exception) {
+                    }
                 }
             }
         }
@@ -650,7 +688,14 @@ private fun AuthenticatedAlapShell(
             effectiveLatestVersionCode = effectiveLatestVersionCode
         )
     }
-    LaunchedEffect(topAnnouncement?.id, notificationsEnabled, floatingGlassEnabled, lastNotifiedId, isAppInForeground) {
+    LaunchedEffect(
+        topAnnouncement?.id,
+        notificationsEnabled,
+        floatingGlassEnabled,
+        wakeScreenOnNotification,
+        lastNotifiedId,
+        isAppInForeground
+    ) {
         val savedNotifiedId = lastNotifiedId ?: return@LaunchedEffect
         if (topAnnouncement != null &&
             topAnnouncement.id.isNotBlank() &&
@@ -663,22 +708,29 @@ private fun AuthenticatedAlapShell(
                     title = topAnnouncement.title,
                     body = topAnnouncement.message
                 )
-            } else if (floatingGlassEnabled && NotificationHelper.hasOverlayPermission(context)) {
-                GlassOverlayService.showPopup(
-                    context = context,
-                    title = topAnnouncement.title,
-                    body = topAnnouncement.message,
-                    badge = topAnnouncement.versionTag.ifBlank { "Update" }
-                )
-            }
-            if (notificationsEnabled) {
-                NotificationHelper.showAnnouncementNotification(
-                    context = context,
-                    announcementId = topAnnouncement.id,
-                    title = topAnnouncement.title,
-                    message = topAnnouncement.message,
-                    versionTag = topAnnouncement.versionTag
-                )
+            } else {
+                val isLockedOrOff = NotificationHelper.isDeviceLockedOrScreenOff(context)
+                if (notificationsEnabled) {
+                    NotificationHelper.showAnnouncementNotification(
+                        context = context,
+                        announcementId = topAnnouncement.id,
+                        title = topAnnouncement.title,
+                        message = topAnnouncement.message,
+                        versionTag = topAnnouncement.versionTag,
+                        wakeScreen = wakeScreenOnNotification
+                    )
+                }
+                if (!isLockedOrOff && floatingGlassEnabled && NotificationHelper.hasOverlayPermission(context)) {
+                    try {
+                        GlassOverlayService.showPopup(
+                            context = context,
+                            title = topAnnouncement.title,
+                            body = topAnnouncement.message,
+                            badge = topAnnouncement.versionTag.ifBlank { "Update" }
+                        )
+                    } catch (_: Exception) {
+                    }
+                }
             }
             mainViewModel.markAnnouncementNotified(topAnnouncement.id)
         }
@@ -736,6 +788,10 @@ private fun AuthenticatedAlapShell(
                     onMarkStatusViewed = mainViewModel::markStatusViewed,
                     onDeleteStatus = mainViewModel::deleteStatus,
                     onDismissAnnouncement = mainViewModel::dismissAnnouncement,
+                    onToggleBlockUser = mainViewModel::toggleBlockUser,
+                    onReportUser = { targetUid, targetName, reason ->
+                        mainViewModel.submitReport(targetUid, targetName, "profile_$targetUid", reason)
+                    },
                     onOpenSettings = { navController.navigate(AlapRoutes.SETTINGS) },
                     onOpenStarred = { navController.navigate(AlapRoutes.STARRED) }
                 )
@@ -880,6 +936,12 @@ private fun AuthenticatedAlapShell(
                     },
                     onNotificationsToggle = mainViewModel::setNotificationsEnabled,
                     onFloatingGlassToggle = mainViewModel::setFloatingGlassEnabled,
+                    wakeScreenOnNotification = wakeScreenOnNotification,
+                    onWakeScreenToggle = mainViewModel::setWakeScreenOnNotification,
+                    onUpgradeFromGuest = {
+                        showGuestUpgradeSetup = true
+                        navController.popBackStack()
+                    },
                     onScreenSecurityToggle = mainViewModel::setScreenSecurityEnabled,
                     onLocalOnlyRelayToggle = mainViewModel::setLocalOnlyRelayMode,
                     onExportBackup = mainViewModel::exportLocalBackupToUri,
@@ -954,6 +1016,8 @@ private fun HomeScaffoldScreen(
     onMarkStatusViewed: (com.example.data.model.StatusUpdate) -> Unit,
     onDeleteStatus: (String) -> Unit,
     onDismissAnnouncement: (String) -> Unit,
+    onToggleBlockUser: (String) -> Unit,
+    onReportUser: (targetUid: String, targetName: String, reason: String) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenStarred: () -> Unit
 ) {
@@ -961,6 +1025,8 @@ private fun HomeScaffoldScreen(
     var showSearch by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var showMenu by remember { mutableStateOf(false) }
+    var inspectedUser by remember { mutableStateOf<UserProfile?>(null) }
+    var reportTargetUser by remember { mutableStateOf<UserProfile?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(actionMessage) {
@@ -1224,11 +1290,13 @@ private fun HomeScaffoldScreen(
 
                             2 -> PeopleTabScreen(
                                 currentUserId = currentUserId,
+                                currentUserProfile = myProfile,
                                 usersState = usersState,
                                 searchQuery = searchQuery,
                                 allowGroupCreation = appConfig.allowGroupCreation,
                                 isReadOnlyMode = appConfig.isReadOnlyMode,
                                 onUserClick = onStartDirectChat,
+                                onInspectUser = { inspectedUser = it },
                                 onCreateGroup = onCreateGroup,
                                 onJoinStudyCode = onJoinStudyCode
                             )
@@ -1236,6 +1304,34 @@ private fun HomeScaffoldScreen(
                     }
                 }
             }
+        }
+
+        inspectedUser?.let { target ->
+            val isTargetGuest = target.isGuestAccount()
+            val notice = if (isTargetGuest && myProfile?.isGuestAccount() != true) {
+                "Guest accounts can chat only with other Guests. You can inspect their verified Gmail & device info or block/report them."
+            } else {
+                null
+            }
+            ContactInfoDialog(
+                otherUser = target,
+                isBlocked = target.userId in blockedUids,
+                chatDisabledNotice = notice,
+                onToggleBlock = { onToggleBlockUser(target.userId) },
+                onReportClick = { reportTargetUser = target },
+                onDismiss = { inspectedUser = null }
+            )
+        }
+
+        reportTargetUser?.let { target ->
+            ReportUserDialog(
+                targetName = if (target.isGuestAccount()) "Guest (${target.guestEmail.ifBlank { target.userId.take(6) }})" else target.displayName,
+                onDismiss = { reportTargetUser = null },
+                onSubmitReport = { reason ->
+                    onReportUser(target.userId, target.displayName, reason)
+                    reportTargetUser = null
+                }
+            )
         }
     }
 }

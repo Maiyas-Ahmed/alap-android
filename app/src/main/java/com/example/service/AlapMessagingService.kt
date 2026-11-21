@@ -19,8 +19,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
- * Handles high-priority FCM push notifications even when Alap is completely closed/killed.
- * Supports both Admin global announcements/updates (topic: alap_updates) and direct/group messages.
+ * Handles high-priority data-only FCM push notifications even when Alap is completely closed/killed.
+ * Automatically routes to Lock-Screen Public WhatsApp-style banners when locked, and
+ * Heads-Up + optional Floating Glass Popup when unlocked.
  */
 class AlapMessagingService : FirebaseMessagingService() {
 
@@ -48,10 +49,12 @@ class AlapMessagingService : FirebaseMessagingService() {
         val notif = remoteMessage.notification
 
         val type = data["type"] ?: "message"
-        val title = data["title"] ?: notif?.title ?: "Alap"
+        val title = data["title"] ?: data["senderName"] ?: notif?.title ?: "Alap"
         val body = data["body"] ?: notif?.body ?: "You have a new notification"
         val versionTag = data["versionTag"] ?: ""
         val chatId = data["chatId"] ?: ""
+        val isGroup = data["isGroup"]?.equals("true", ignoreCase = true) == true
+        val conversationTitle = data["conversationTitle"] ?: title
         val announcementId = data["announcementId"] ?: "fcm_${System.currentTimeMillis()}"
 
         serviceScope.launch {
@@ -72,19 +75,30 @@ class AlapMessagingService : FirebaseMessagingService() {
             val prefs = LocalPreferencesManager(applicationContext)
             val notificationsEnabled = prefs.notificationsEnabled.first()
             val floatingGlassEnabled = prefs.floatingGlassEnabled.first()
+            val wakeScreen = prefs.wakeScreenOnNotification.first()
+            val isLockedOrOff = NotificationHelper.isDeviceLockedOrScreenOff(applicationContext)
 
-            if (floatingGlassEnabled && NotificationHelper.hasOverlayPermission(applicationContext)) {
-                GlassOverlayService.showPopup(
-                    context = applicationContext,
-                    title = title,
-                    body = body,
-                    badge = if (type == "announcement" || type == "update") {
-                        versionTag.ifBlank { "Alap Update" }
-                    } else {
-                        "Alap Message"
-                    },
-                    chatId = chatId.takeIf { it.isNotBlank() }
-                )
+            // On Android 8+, SYSTEM_ALERT_WINDOW cannot render over a secure Lock Screen;
+            // only show floating overlay when device is unlocked & permitted.
+            if (!isLockedOrOff &&
+                floatingGlassEnabled &&
+                NotificationHelper.hasOverlayPermission(applicationContext)
+            ) {
+                try {
+                    GlassOverlayService.showPopup(
+                        context = applicationContext,
+                        title = title,
+                        body = body,
+                        badge = if (type == "announcement" || type == "update") {
+                            versionTag.ifBlank { "Alap Update" }
+                        } else {
+                            "Alap Message"
+                        },
+                        chatId = chatId.takeIf { it.isNotBlank() }
+                    )
+                } catch (e: Exception) {
+                    Log.w("AlapFCM", "Overlay start restricted in background; falling back to system notification", e)
+                }
             }
 
             if (notificationsEnabled) {
@@ -94,14 +108,19 @@ class AlapMessagingService : FirebaseMessagingService() {
                         announcementId = announcementId,
                         title = title,
                         message = body,
-                        versionTag = versionTag
+                        versionTag = versionTag,
+                        wakeScreen = wakeScreen
                     )
                 } else {
                     NotificationHelper.showIncomingMessageNotification(
                         context = applicationContext,
                         chatId = chatId.ifBlank { "alap_general" },
                         senderName = title,
-                        preview = body
+                        preview = body,
+                        isGroup = isGroup,
+                        conversationTitle = conversationTitle,
+                        wakeScreen = wakeScreen,
+                        includeInlineActions = chatId.isNotBlank()
                     )
                 }
             }

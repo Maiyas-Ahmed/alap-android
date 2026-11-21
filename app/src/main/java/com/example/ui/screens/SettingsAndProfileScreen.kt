@@ -86,6 +86,7 @@ import com.example.data.model.UserPrivateInfo
 import com.example.data.model.UserProfile
 import com.example.ui.components.AlapAvatar
 import com.example.ui.components.AlapDateFormatter
+import com.example.ui.components.GuestBadge
 import com.example.ui.components.StudentBadge
 import com.example.ui.components.TeacherBadge
 import com.example.ui.components.VerifiedBadge
@@ -132,6 +133,9 @@ fun SettingsScreen(
     ) -> Unit,
     onNotificationsToggle: (Boolean) -> Unit,
     onFloatingGlassToggle: (Boolean) -> Unit,
+    wakeScreenOnNotification: Boolean = true,
+    onWakeScreenToggle: (Boolean) -> Unit = {},
+    onUpgradeFromGuest: () -> Unit = {},
     onScreenSecurityToggle: (Boolean) -> Unit,
     onLocalOnlyRelayToggle: (Boolean) -> Unit = {},
     onExportBackup: (Uri) -> Unit = {},
@@ -171,12 +175,13 @@ fun SettingsScreen(
         ?: myProfile?.publicPhoneNumber?.takeIf { it.isNotBlank() }
         ?: "Not added yet"
 
-    val hidePhone = myProfile?.hidePhoneNumber ?: true
-    val hideUserId = myProfile?.hideUserId ?: false
-    val hideOnline = myProfile?.hideOnlineStatus ?: false
-    val hideAbout = myProfile?.hideAbout ?: false
-    val hideReadReceipts = myProfile?.hideReadReceipts ?: false
-    val isDiscoverable = myProfile?.isDiscoverable ?: true
+    val isGuestAccount = myProfile?.isGuestAccount() == true
+    val hidePhone = if (isGuestAccount) false else (myProfile?.hidePhoneNumber ?: true)
+    val hideUserId = if (isGuestAccount) false else (myProfile?.hideUserId ?: false)
+    val hideOnline = if (isGuestAccount) false else (myProfile?.hideOnlineStatus ?: false)
+    val hideAbout = if (isGuestAccount) false else (myProfile?.hideAbout ?: false)
+    val hideReadReceipts = if (isGuestAccount) false else (myProfile?.hideReadReceipts ?: false)
+    val isDiscoverable = if (isGuestAccount) true else (myProfile?.isDiscoverable ?: true)
     val blockedUids = myProfile?.blockedUids ?: emptyList()
 
     val saveQuickPrivacy = {
@@ -262,7 +267,11 @@ fun SettingsScreen(
                         localStoredMessageCount = localStoredMessageCount,
                         studyFocusMinutesTotal = studyFocusMinutesTotal,
                         studySessionsCompleted = studySessionsCompleted,
-                        onEditProfile = { showEditProfile = true },
+                        onEditProfile = {
+                            if (isGuestAccount) activeSection = SettingsSection.ACCOUNT
+                            else showEditProfile = true
+                        },
+                        onUpgradeFromGuest = onUpgradeFromGuest,
                         onOpenSection = { activeSection = it },
                         onOpenStarredMessages = onOpenStarredMessages,
                         onSignOut = onSignOut
@@ -275,7 +284,11 @@ fun SettingsScreen(
                     displayAlapId = displayAlapId,
                     hidePhone = hidePhone,
                     hideUserId = hideUserId,
-                    onEditProfile = { showEditProfile = true }
+                    isGuestAccount = isGuestAccount,
+                    guestDeviceInfo = myProfile?.guestDeviceInfo.orEmpty(),
+                    guestJoinedAtEpochMs = myProfile?.guestJoinedAtEpochMs ?: 0L,
+                    onEditProfile = { showEditProfile = true },
+                    onUpgradeFromGuest = onUpgradeFromGuest
                 )
 
                 SettingsSection.PRIVACY -> PrivacySettingsSection(
@@ -286,6 +299,7 @@ fun SettingsScreen(
                     hideReadReceipts = hideReadReceipts,
                     isDiscoverable = isDiscoverable,
                     blockedCount = blockedUids.size,
+                    isGuestAccount = isGuestAccount,
                     onUpdatePrivacy = saveQuickPrivacy,
                     onOpenBlockedUsers = { showBlockedUsersDialog = true }
                 )
@@ -300,9 +314,11 @@ fun SettingsScreen(
                 SettingsSection.NOTIFICATIONS -> NotificationsSettingsSection(
                     notificationsEnabled = notificationsEnabled,
                     floatingGlassEnabled = floatingGlassEnabled,
+                    wakeScreenOnNotification = wakeScreenOnNotification,
                     hasOverlayPermission = hasOverlayPermission,
                     onNotificationsToggle = onNotificationsToggle,
-                    onFloatingGlassToggle = onFloatingGlassToggle
+                    onFloatingGlassToggle = onFloatingGlassToggle,
+                    onWakeScreenToggle = onWakeScreenToggle
                 )
 
                 SettingsSection.STORAGE -> StorageSettingsSection(
@@ -561,10 +577,12 @@ private fun SettingsHubContent(
     studyFocusMinutesTotal: Int,
     studySessionsCompleted: Int,
     onEditProfile: () -> Unit,
+    onUpgradeFromGuest: () -> Unit,
     onOpenSection: (SettingsSection) -> Unit,
     onOpenStarredMessages: () -> Unit,
     onSignOut: () -> Unit
 ) {
+    val isGuest = myProfile?.isGuestAccount() == true
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -587,7 +605,7 @@ private fun SettingsHubContent(
             ) {
                 AlapAvatar(
                     avatarId = myProfile?.avatarId ?: "avatar_emerald",
-                    displayName = myProfile?.displayName ?: "Alap User",
+                    displayName = if (isGuest) "Guest" else (myProfile?.displayName ?: "Alap User"),
                     isOnline = !hideOnline,
                     size = 62.dp
                 )
@@ -595,48 +613,56 @@ private fun SettingsHubContent(
                 Column(modifier = Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = myProfile?.displayName ?: "Alap User",
+                            text = if (isGuest) "Guest" else (myProfile?.displayName ?: "Alap User"),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f, fill = false)
                         )
-                        if (myProfile?.isVerified == true) {
+                        if (isGuest) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            GuestBadge()
+                        }
+                        if (!isGuest && myProfile?.isVerified == true) {
                             Spacer(modifier = Modifier.width(5.dp))
                             VerifiedBadge()
                         }
-                        if (myProfile?.isTeacher == true) {
+                        if (!isGuest && myProfile?.isTeacher == true) {
                             Spacer(modifier = Modifier.width(6.dp))
                             TeacherBadge()
                         }
-                        if (myProfile?.isStudent == true) {
+                        if (!isGuest && myProfile?.isStudent == true) {
                             Spacer(modifier = Modifier.width(6.dp))
                             StudentBadge()
                         }
                     }
                     Text(
-                        text = buildString {
-                            append("@${myProfile?.handle ?: "alap"}")
-                            append(" • ")
-                            append(
-                                when {
-                                    myProfile?.isTeacher == true -> "Verified Teacher"
-                                    myProfile?.isLockedStudentAccount() == true -> "Student Account (Locked)"
-                                    else -> "Personal Account (18+)"
+                        text = if (isGuest) {
+                            "Guest Mode • Guest-to-Guest chat only • Anti-fraud ON"
+                        } else {
+                            buildString {
+                                append("@${myProfile?.handle ?: "alap"}")
+                                append(" • ")
+                                append(
+                                    when {
+                                        myProfile?.isTeacher == true -> "Verified Teacher"
+                                        myProfile?.isLockedStudentAccount() == true -> "Student Account (Locked)"
+                                        else -> "Personal Account (18+)"
+                                    }
+                                )
+                                if (myProfile?.isTeacher == true && myProfile.teacherSubject.isNotBlank()) {
+                                    append(" • ${myProfile.teacherSubject}")
+                                } else if (myProfile?.isStudent == true && myProfile.studentClass.isNotBlank()) {
+                                    append(" • ${myProfile.studentClass}")
                                 }
-                            )
-                            if (myProfile?.isTeacher == true && myProfile.teacherSubject.isNotBlank()) {
-                                append(" • ${myProfile.teacherSubject}")
-                            } else if (myProfile?.isStudent == true && myProfile.studentClass.isNotBlank()) {
-                                append(" • ${myProfile.studentClass}")
-                            }
-                            if (myProfile?.isTeacher == true && myProfile.teacherPlanName.isNotBlank()) {
-                                append(" • Plan: ${myProfile.teacherPlanName}")
+                                if (myProfile?.isTeacher == true && myProfile.teacherPlanName.isNotBlank()) {
+                                    append(" • Plan: ${myProfile.teacherPlanName}")
+                                }
                             }
                         },
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary
+                        color = if (isGuest) Color(0xFFB25000) else MaterialTheme.colorScheme.primary
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
@@ -647,19 +673,55 @@ private fun SettingsHubContent(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                IconButton(
-                    onClick = onEditProfile,
-                    modifier = Modifier.testTag("edit_profile_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Edit,
-                        contentDescription = "Edit profile",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
+                if (!isGuest) {
+                    IconButton(
+                        onClick = onEditProfile,
+                        modifier = Modifier.testTag("edit_profile_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Edit,
+                            contentDescription = "Edit profile",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             }
 
-            if (myProfile?.isStudent == true || studyFocusMinutesTotal > 0) {
+            if (isGuest) {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = Color(0xFFFFEDE0),
+                    border = BorderStroke(1.dp, Color(0xFFB25000).copy(alpha = 0.3f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Guest Account (No ID • Transparent)",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFB25000)
+                            )
+                            Text(
+                                text = "Verified Gmail & device info are public to contacts to prevent scams.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF7A3600)
+                            )
+                        }
+                        TextButton(onClick = onUpgradeFromGuest) {
+                            Text("Upgrade", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            if (!isGuest && (myProfile?.isStudent == true || studyFocusMinutesTotal > 0)) {
                 Surface(
                     shape = RoundedCornerShape(14.dp),
                     color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
